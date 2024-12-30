@@ -1,0 +1,4 @@
+.vscode
+*.jld
+JacobiSVD.jl
+docs/build
