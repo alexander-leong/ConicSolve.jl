@@ -1,26 +1,38 @@
+#=
+Copyright (c) 2025 Alexander Leong, and contributors
+
+This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.md
+file in the root directory
+=#
+
+"""
+This function contains functions only used for debugging
+the correctness of the optimization solver (not to be used in production).
+"""
+
 include("./cones/nonneg.jl")
 include("./cones/psdcone.jl")
 
 using LinearAlgebra
 
-function is_convex_cone(program, α)
+function is_convex_cone(program, α, etol=1e-6)
     for (k, cone) in enumerate(program.cones)
         inds = program.cones_inds[k]+1:program.cones_inds[k+1]
         s_hat = program.s[inds]
-        z_hat = program.KKT_x[program.inds_h][inds]
-        is_convex_cone(cone, α, s_hat, z_hat)
+        z_hat = program.z[inds]
+        is_convex_cone(cone, α, s_hat, z_hat, etol)
     end
     return true
 end
 
-function is_convex_cone(cone::NonNegativeOrthant, α, s_hat, z_hat)
-    @assert minimum(s_hat + α * cone.s) >= 0
-    @assert minimum(z_hat + α * cone.z) >= 0
+function is_convex_cone(cone::NonNegativeOrthant, α, s_hat, z_hat, etol=1e-6)
+    @assert minimum(s_hat + α * cone.s) >= -etol
+    @assert minimum(z_hat + α * cone.z) >= -etol
 end
 
-function is_convex_cone(cone::PSDCone, α, s_hat, z_hat)
-    @assert minimum(eigen(mat((s_hat + α * cone.s))).values) >= 0
-    @assert minimum(eigen(mat((z_hat + α * cone.z))).values) >= 0
+function is_convex_cone(cone::PSDCone, α, s_hat, z_hat, etol=1e-6)
+    @assert minimum(eigen(mat((s_hat + α * cone.s))).values) >= -etol
+    @assert minimum(eigen(mat((z_hat + α * cone.z))).values) >= -etol
 end
 
 function check_affine_direction(program, λ, Δsₐ_scaled, Δzₐ_scaled)

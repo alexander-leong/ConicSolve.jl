@@ -1,5 +1,12 @@
+#=
+Copyright (c) 2025 Alexander Leong, and contributors
+
+This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.md
+file in the root directory
+=#
+
 using LinearAlgebra
-# TODO: have option to toggle between different SVD impl.
+
 using JacobiSVD
 
 include("cone.jl")
@@ -11,10 +18,19 @@ mutable struct PSDCone <: Cone
     s
     z
     λ
+    _svd
 
-    function PSDCone(p)
+    function PSDCone(p, svdmethod="QR")
         cone_psd = new()
         cone_psd.p = p
+        function svdfact(A)
+            if svdmethod == "QR"
+                return svd(A, alg=LinearAlgebra.QRIteration())
+            else
+                return jsvd!(A)
+            end
+        end
+        cone_psd._svd = svdfact
         return cone_psd
     end
 end
@@ -27,6 +43,10 @@ end
 function alpha_d(cone::PSDCone)
     α_d = maximum(eigen(mat(-cone.z)).values)
     return α_d
+end
+
+function get_mat_size(cone::PSDCone)
+    return Int((cone.p * (cone.p + 1)) / 2)
 end
 
 function get_inv_weighted_mat(cone::PSDCone,
@@ -74,7 +94,7 @@ function get_scaling_factors(cone::PSDCone)
     L₁_L = cholesky(mat(cone.s)).L
     L₂_U = cholesky(mat(cone.z)).U
     # need to use more numerically stable SVD method
-    U, S, V = jsvd!(L₂_U * L₁_L)
+    U, S, V = cone._svd(L₂_U * L₁_L)
     return L₁_L, L₂_U, U, S, V'
 end
 
@@ -88,7 +108,7 @@ function update_scaling_vars(cone::PSDCone,
     Λ = mat(cone.λ)
     L₁_L = cholesky(Λ + α * mat_s_scaled).L
     L₂_U = cholesky(Λ + α * mat_z_scaled).U
-    U, S, V = svd(L₂_U * L₁_L)
+    U, S, V = cone._svd(L₂_U * L₁_L)
     cone.λ = svec(Diagonal(S))
     sqrt_λ = sqrt.(S)
     inv_sqrt_λ = inv.(sqrt_λ)
@@ -151,3 +171,5 @@ function get_d_s(cone::PSDCone, s_scaled, z_scaled, b_z, γ, λ, μ, σ)
     b_z = b_z - get_weighted_mat(cone, diamond(λ, dₛ), true)
     return b_z
 end
+
+export PSDCone

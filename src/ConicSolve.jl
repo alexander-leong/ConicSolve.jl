@@ -5,6 +5,7 @@ This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.
 file in the root directory
 =#
 
-abstract type Cone end
-
-export Cone
+module ConicSolve
+include("./models/sdp.jl")
+include("solver.jl")
+end

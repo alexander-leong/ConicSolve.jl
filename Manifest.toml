@@ -2,7 +2,7 @@
 
 julia_version = "1.10.4"
 manifest_format = "2.0"
-project_hash = "6c44726cd001ae93a44383caa417ec640588c896"
+project_hash = "6eb426409607bd4587f7a952b0987ee063d0be0c"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -290,6 +290,14 @@ deps = ["Artifacts", "Preferences"]
 git-tree-sha1 = "a007feb38b422fbdab534406aeca1b86823cb4d6"
 uuid = "692b3bcd-3c85-4b1f-b108-f13ce0eb3210"
 version = "1.7.0"
+
+[[deps.JacobiSVD]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "9a8b5755e3f632400c395a0f3f226d4034965a96"
+repo-rev = "master"
+repo-url = "JacobiSVD.jl"
+uuid = "2ca068c6-2156-5cf0-8317-c67edf277a2c"
+version = "0.0.0"
 
 [[deps.LaTeXStrings]]
 git-tree-sha1 = "dda21b8cbd6a6c40d9d02a73230f9d70fed6918c"

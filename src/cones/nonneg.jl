@@ -1,3 +1,10 @@
+#=
+Copyright (c) 2025 Alexander Leong, and contributors
+
+This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.md
+file in the root directory
+=#
+
 include("cone.jl")
 
 mutable struct NonNegativeOrthant <: Cone
@@ -23,6 +30,10 @@ end
 function alpha_d(cone::NonNegativeOrthant)
     α_d = minimum(cone.z)
     return α_d
+end
+
+function get_mat_size(cone::NonNegativeOrthant)
+    return cone.p
 end
 
 function get_inv_weighted_mat(cone::NonNegativeOrthant, V, transpose=false)
@@ -111,3 +122,5 @@ function get_d_s(cone::NonNegativeOrthant, s_scaled, z_scaled, b_z, γ, λ, μ, 
     b_z = b_z - get_weighted_mat(cone, diamond(λ, dₛ))
     return b_z
 end
+
+export NonNegativeOrthant

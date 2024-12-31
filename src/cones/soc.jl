@@ -1,3 +1,10 @@
+#=
+Copyright (c) 2025 Alexander Leong, and contributors
+
+This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.md
+file in the root directory
+=#
+
 include("cone.jl")
 
 mutable struct SecondOrderCone <: Cone
