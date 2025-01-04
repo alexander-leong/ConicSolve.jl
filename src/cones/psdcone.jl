@@ -7,8 +7,6 @@ file in the root directory
 
 using LinearAlgebra
 
-using JacobiSVD
-
 include("cone.jl")
 
 mutable struct PSDCone <: Cone
@@ -27,7 +25,7 @@ mutable struct PSDCone <: Cone
             if svdmethod == "QR"
                 return svd(A, alg=LinearAlgebra.QRIteration())
             else
-                return jsvd!(A)
+                return svd(A, alg=LinearAlgebra.QRIteration())
             end
         end
         cone_psd._svd = svdfact
