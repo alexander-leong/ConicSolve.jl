@@ -5,14 +5,19 @@ using ConicSolve
 
 makedocs(;
     authors="Alexander Leong <toshibaalexander@gmail.com>",
-    sitename = "ConicSolve.jl", 
+    sitename = "ConicSolve.jl",
+    clean   = true, 
     doctest = false,
     modules = [ConicSolve],
     remotes = nothing,
     pages=[
         "Readme" => "index.md",
         "Tutorial" => "tutorial.md",
-        "Functions" => "functions.md"
+        "Examples" => ["examples/maximum_flow.md",
+                       "examples/beamforming.md",
+                       "examples/portfolio.md",
+                       "examples/denoise.md"],
+        "API Reference" => "functions.md"
     ],
     format = Documenter.HTML(
         mathengine = MathJax3(Dict(

@@ -6,6 +6,12 @@ file in the root directory
 =#
 
 module ConicSolve
+
+include("./cones/cone.jl")
+include("./cones/nonneg.jl")
+include("./cones/psdcone.jl")
+include("./cones/soc.jl")
 include("./models/sdp.jl")
 include("solver.jl")
+
 end

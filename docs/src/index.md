@@ -37,19 +37,6 @@ There are two ways to construct an optimization problem in ConicSolve.jl
 1. Using the Low Level API
 2. Using models to precompute matrices before invoking the low level API
 
-Here is an example of solving the rank minimization problem with an additional nonnegative constraint
-```math
-\begin{aligned}
-\text{minimize}\qquad &
-rank\hspace{0.1cm}X \\
-\text{subject to}\qquad &
-\mathcal{A}(X) = b \\
-& X \succeq 0 \\
-& X_{ij} >= 0
-\end{aligned}
-```
-see [Recht, Fazel, Parrilo, 2010, Guaranteed Minimum-Rank Solutions of Linear Matrix Equations via Nuclear Norm Minimization](https://www.mit.edu/~parrilo/pubs/files/RechtFazelParrilo-GuaranteedMinimumRankSolutionsOfLinearMatrixEquationsViaNuclearNormMinimization-SIAM.pdf) for more details.
-
 ### Using the Low Level API
 ```julia
 julia> using ConicSolve

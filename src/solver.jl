@@ -10,7 +10,6 @@ file in the root directory
 include("./arrayutils.jl")
 include("./debug.jl")
 include("./kktsolver.jl")
-include("./cones/cone.jl")
 
 using LinearAlgebra
 using Logging
@@ -42,16 +41,16 @@ end
 Represents a Conic Quadratic Program.
 """
 mutable struct ConeQP
-    A::Matrix{Float64}
-    G::Matrix{Float64}
-    KKT_b::Vector{Float64}
-    KKT_x::Vector{Float64}
-    P::Matrix{Float64}
-    b::Vector{Float64}
-    c::Vector{Float64}
-    h::Vector{Float64}
-    s::Vector{Float64}
-    z::Vector{Float64}
+    A::AbstractArray{Float64}
+    G::AbstractArray{Float64}
+    KKT_b::AbstractVector{Float64}
+    KKT_x::AbstractVector{Float64}
+    P::AbstractArray{Float64}
+    b::AbstractVector{Float64}
+    c::AbstractVector{Float64}
+    h::AbstractVector{Float64}
+    s::AbstractVector{Float64}
+    z::AbstractVector{Float64}
     α::Float64
     
     cones::Vector{Cone}
@@ -68,7 +67,17 @@ mutable struct ConeQP
     @doc"""
         ConeQP(A, G, P, b, c, h, cones)
     
-    Constructs a new Conic Quadratic Program.
+    Constructs a new Conic Quadratic Program of the form:
+    ```math
+    \\begin{aligned}
+    \\text{minimize}\\qquad &
+    (1/2)x^TPx + c^Tx \\\\
+    \\text{subject to}\\qquad &
+    Gx + s = h \\\\
+    & Ax = b \\\\
+    & s \\succeq 0
+    \\end{aligned}
+    ```
     
     # Parameters:
     * `A`: The block matrix A in the KKT matrix
@@ -79,25 +88,81 @@ mutable struct ConeQP
     * `h`: The vector h corresponding to ``Gx + s = h``
     * `cones`: A vector of cone types
     """
-    function ConeQP(A::Matrix{Float64},
-                    G::Matrix{Float64},
-                    P::Matrix{Float64},
-                    b::Vector{Float64},
-                    c::Vector{Float64},
-                    h::Vector{Float64},
+    function ConeQP(A::AbstractArray{Float64},
+                    G::AbstractArray{Float64},
+                    P::AbstractArray{Float64},
+                    b::AbstractArray{Float64},
+                    c::AbstractArray{Float64},
+                    h::AbstractArray{Float64},
                     cones::Vector{Cone})
         cone_qp = new()
-        cone_qp.A = A
         cone_qp.G = G
         cone_qp.P = P
-        cone_qp.b = b
         cone_qp.c = c
         cone_qp.h = h
+        if A != undef
+            if size(A)[2] != size(G)[2]
+                throw(DimensionMismatch("Number of columns of A does not equal G"))
+            else
+                cone_qp.A = A
+            end
+        end
+        if size(G)[2] != size(P)[2]
+            throw(DimensionMismatch("Number of columns of G does not equal P"))
+        end
+        if size(P)[1] != size(P)[2]
+            throw(DimensionMismatch("P is not square"))
+        end
+        cone_qp.inds_c = 1:size(P)[1]
+        if b != undef
+            if size(A)[1] != length(b)
+                throw(DimensionMismatch("Number of rows of A does not equal b"))
+            else
+                cone_qp.b = b
+                cone_qp.inds_b = cone_qp.inds_c[end]+1:cone_qp.inds_c[end]+size(A)[1]
+                cone_qp.inds_h = cone_qp.inds_b[end]+1:cone_qp.inds_b[end]+size(G)[1]
+            end
+        else
+            cone_qp.inds_h = cone_qp.inds_c[end]+1:cone_qp.inds_c[end]+size(G)[1]
+        end
+        if size(A)[2] != length(c)
+            throw(DimensionMismatch("Number of columns of A does not equal c"))
+        end
+        if size(G)[1] != length(h)
+            throw(DimensionMismatch("Number of rows of G does not equal h"))
+        end
         cone_qp.cones = cones
         
-        cone_qp.inds_c = 1:size(P)[1]
-        cone_qp.inds_b = cone_qp.inds_c[end]+1:cone_qp.inds_c[end]+size(A)[1]
-        cone_qp.inds_h = cone_qp.inds_b[end]+1:cone_qp.inds_b[end]+size(G)[1]
+        return cone_qp
+    end
+    
+    @doc"""
+        ConeQP(G, P, c, h, cones)
+    
+    Constructs a new Conic Quadratic Program of the form:
+    ```math
+    \\begin{aligned}
+    \\text{minimize}\\qquad &
+    (1/2)x^TPx + c^Tx \\\\
+    \\text{subject to}\\qquad &
+    Gx + s = h \\\\
+    & s \\succeq 0
+    \\end{aligned}
+    ```
+    
+    # Parameters:
+    * `G`: The block matrix G in the KKT matrix
+    * `P`: The block matrix P in the KKT matrix
+    * `c`: The vector c corresponding to ``c^Tx``
+    * `h`: The vector h corresponding to ``Gx + s = h``
+    * `cones`: A vector of cone types
+    """
+    function ConeQP(G::AbstractArray{Float64},
+                    P::AbstractArray{Float64},
+                    c::AbstractArray{Float64},
+                    h::AbstractArray{Float64},
+                    cones::Vector{Cone})
+        cone_qp = ConeQP(undef, G, P, undef, c, h, cones)
         return cone_qp
     end
 end
@@ -138,6 +203,13 @@ mutable struct Solver
     # Parameters:
     * `program`: The QP to solve
     * `kktsolve`: The function to solve the KKT system
+    * `limit_obj`: The minimum/maximum objective value the solver will terminate
+    * `limit_soln`: The 2-norm difference between the current and previous estimates
+    * `tol_gap_abs`: The absolute gap tolerance
+    * `tol_gap_rel`: The relative gap tolerance
+    * `tol_optimality`: The absolute tolerance for satisfying the optimality conditions
+    * `max_iterations`: The maximum number of iterations before the solver terminates
+    * `time_limit_sec`: The elapsed time before terminating the solver after the current iteration
     * `η`: Optimization parameter typically set to zero or σ, default is 0.0
     * `γ`: Mehrotra correction parameter set to γ ∈ [0, 1], default is 1.0
 
@@ -145,21 +217,39 @@ mutable struct Solver
     """
     function Solver(program::ConeQP,
                     kktsolve=full_qr_solve,
+                    limit_obj=0,
+                    limit_soln=0,
+                    tol_gap_abs=1e-6,
+                    tol_gap_rel=1e-6,
+                    tol_optimality=1e-6,
                     max_iterations=100,
                     time_limit_sec=1e6,
-                    η=nothing,
+                    η=0.0,
                     γ::Float64=1.0)
         solver = new()
         solver.current_iteration = 1
         solver.device = CPU
-        solver.max_iterations = max_iterations
-        solver.time_limit_sec = time_limit_sec
-        program.kktsolve = kktsolve
         solver.program = program
+        program.kktsolve = kktsolve
+        solver.limit_obj = limit_obj
+        solver.limit_soln = limit_soln
+        solver.max_iterations = max_iterations
+        solver.num_threads = 1
+        solver.time_limit_sec = time_limit_sec
+        solver.tol_gap_abs = tol_gap_abs
+        solver.tol_gap_rel = tol_gap_rel
+        solver.tol_optimality = tol_optimality
         solver.η = η
         solver.γ = γ
         return solver
     end
+end
+
+function within_tol(abs_tol, rel_tol, value)
+    if abs_tol / value < rel_tol
+        return true
+    end
+    return false
 end
 
 """
@@ -221,18 +311,25 @@ end
 
 function check_preconditions(solver::Solver)
     qp = solver.program
-    p = size(qp.A)[1]
-    if rank(qp.A) < p
+    if isdefined(qp, :A) && rank(qp.A) < size(qp.A)[1]
         solver.status_termination = INFEASIBLE
         @error "Values of A are inconsistent or redundant."
         @assert false
     end
-    n = size(qp.P)[1]
-    if rank([qp.P qp.A' qp.G']) < n
-        solver.status_termination = INFEASIBLE
-        @error "There are some constraints in the problem that are either
-        redundant or inconsistent."
-        @assert false
+    if isdefined(qp, :A)
+        if rank([qp.P qp.A' qp.G']) < size(qp.P)[1]
+            solver.status_termination = INFEASIBLE
+            @error "There are some constraints in the problem that are either
+            redundant or inconsistent."
+            @assert false
+        end
+    else
+        if rank([qp.P qp.G']) < size(qp.P)[1]
+            solver.status_termination = INFEASIBLE
+            @error "There are some constraints in the problem that are either
+            redundant or inconsistent."
+            @assert false
+        end
     end
 end
 
@@ -249,22 +346,25 @@ function optimize_main!(solver::Solver)
             break
         end
         itr_time_elapsed = @elapsed begin
-        P = solver.program.P
-        c = solver.program.c
-        x = @view solver.program.KKT_x[1:size(P)[1]]
+        program = solver.program
+        P = program.P
+        c = program.c
+        x = @view program.KKT_x[1:size(P)[1]]
         if abs(solver.obj_primal_value) <= solver.limit_obj
             solver.status_termination = OBJECTIVE_LIMIT
             return
         end
         tol = solver.tol_optimality
-        result, r, μ = get_solver_status(i, solver.program, tol)
+        tol_gap_abs = solver.tol_gap_abs
+        tol_gap_rel = solver.tol_gap_rel
+        result, r, μ = get_solver_status(i, program, tol_gap_abs, tol_gap_rel, tol)
         if result == true
             solver.status_termination = OPTIMAL
             break
         end
         η = solver.η
         γ = solver.γ
-        get_central_path(solver.program, i, r, μ, η, γ)
+        get_central_path(program, i, r, μ, η, γ)
         primal_obj = get_objective(P, c, x)
         log_msg = ("Primal objective value: " * string(primal_obj))
         @info log_msg
@@ -285,25 +385,7 @@ function optimize_main!(solver::Solver)
 end
 
 function initialize!(solver::Solver)
-    if isnothing(solver.limit_obj)
-        solver.limit_obj = 0
-    end
-    if isnothing(solver.limit_soln)
-        solver.limit_soln = 0
-    end
-    if isnothing(solver.num_threads)
-        solver.num_threads = 1
-    end
     solver.status_termination = OPTIMIZE_NOT_CALLED
-    if isnothing(solver.tol_gap_abs)
-        solver.tol_gap_abs = 1e-6
-    end
-    if isnothing(solver.tol_gap_rel)
-        solver.tol_gap_rel = 1e-6
-    end
-    if isnothing(solver.tol_optimality)
-        solver.tol_optimality = 1e-6
-    end
     log_solver_parameters(solver)
     initialize!(solver.program)
 end
@@ -384,16 +466,25 @@ function alpha_d(program::ConeQP)
 end
 
 function get_num_constraints(program::ConeQP)
-    num_constraints = size(program.P)[1] + size(program.A)[1] + size(program.G)[1]
+    num_constraints = size(program.P)[1]
+    if isdefined(program, :A)
+        num_constraints += size(program.A)[1]
+    end
+    num_constraints += size(program.G)[1]
     return num_constraints
 end
 
 function initialize!(program::ConeQP)
+    A = isdefined(program, :A) ? program.A : nothing
     G = program.G
     P = program.P
 
-    program.kktsystem = KKTSystem(program.A, G, P)
-    program.KKT_b = vcat([-program.c, program.b, program.h]...)
+    program.kktsystem = isdefined(program, :A) ? KKTSystem(A, G, P) : KKTSystem(G, P)
+    if isdefined(program, :b)
+        program.KKT_b = vcat([-program.c, program.b, program.h]...)
+    else
+        program.KKT_b = vcat([-program.c, program.h]...)
+    end
     program.s = zeros((size(program.G)[1]))
     program.z = zeros((size(program.G)[1]))
 
@@ -402,7 +493,7 @@ function initialize!(program::ConeQP)
     program.cones_inds = [0]
     for (_, cone) in enumerate(program.cones)
         e = vcat(e, get_e(cone))
-        ind = program.cones_inds[end] + get_mat_size(cone)
+        ind = program.cones_inds[end] + get_size(cone)
         push!(program.cones_inds, ind)
     end
 
@@ -448,44 +539,51 @@ end
 function check_linear_inequalities(s::Vector{Float64},
                                    z::AbstractArray,
                                    tol::Float64=1e-6)
-    r2 = all(s->s >= tol, s) && all(z->z >= tol, z)
+    r2 = all(s->norm(s) >= tol, s) && all(z->norm(z) >= tol, z)
     return r2
 end
 
 function check_duality_gap(s::Vector{Float64},
                            z::AbstractArray,
-                           tol::Float64=1e-6)
-    r3 = abs(z' * s) <= tol
+                           atol::Float64=1e-6,
+                           rtol::Float64=1e-3)
+    r3 = within_tol(atol, rtol, abs(z' * s))
     return r3
 end
 
 """
-    check_optimality_conditions(program, tol, r, s, z, check_r1, check_r2, check_r3, check_r4)
+    is_optimal(program, r, s, z, gap_atol, gap_rtol, tol, check_r1, check_r2, check_r3, check_r4)
 
 The stopping criterion used to determine convergence.
 Convergence is based on the following criteria:
 - residuals close to zero (within tol)
 - duality gap close to zero (within tol)
 - solution is primal-dual feasible
+
+Certain optimality conditions may be toggled by the check_* parameters,
+though this is discouraged.
 """
-function check_optimality_conditions(program::ConeQP,
-                                     tol::Float64,
-                                     r::Vector{Float64},
-                                     s::Vector{Float64},
-                                     z::AbstractArray,
-                                     check_r1=true,
-                                     check_r2=true,
-                                     check_r3=true,
-                                     check_r4=true)
+function is_optimal(program::ConeQP,
+                    r::AbstractArray{Float64},
+                    s::AbstractArray{Float64},
+                    z::AbstractArray{Float64},
+                    gap_atol::Float64,
+                    gap_rtol::Float64,
+                    tol::Float64,
+                    check_r1=true,
+                    check_r2=true,
+                    check_r3=true,
+                    check_r4=true)
     x_inds = program.inds_c
     b_x = r[x_inds]
     b_x_is_optimal = all(x->abs(x) <= tol, b_x)
     x = program.KKT_x
     
     r1 = check_r1 ? b_x_is_optimal : true
+    check_r2 = check_r2 && isdefined(program, :A)
     r2 = check_r2 ? check_linear_equalities(program, r) : true
     r3 = check_r3 ? check_linear_inequalities(s, z) : true
-    r4 = check_r4 ? check_duality_gap(s, z) : true
+    r4 = check_r4 ? check_duality_gap(s, z, gap_atol, gap_rtol) : true
     r5 = is_convex_cone(program, 0, tol)
 
     result = r1 && r2 && r3 && r4 && r5
@@ -524,15 +622,19 @@ function evaluate_residual(qp::ConeQP,
                            x_inds::UnitRange{Int64},
                            y_inds::UnitRange{Int64},
                            z_inds::UnitRange{Int64})
-    r = zeros(length(Δx))
+    r = zeros(Float64, length(Δx))
     x = Δx[x_inds]
-    y = Δx[y_inds]
     z = Δx[z_inds]
-    r_x = qp.P * x + qp.A' * y + qp.G' * z + qp.c
-    r_y = qp.A * x - qp.b
+    if isdefined(qp, :A)
+        y = Δx[y_inds]
+        r_x = qp.P * x + qp.A' * y + qp.G' * z + qp.c
+        r_y = qp.A * x - qp.b
+        r[y_inds] = r_y
+    else
+        r_x = qp.P * x + qp.G' * z + qp.c
+    end
     r_z = qp.s + qp.G * x - qp.h
     r[x_inds] = r_x
-    r[y_inds] = r_y
     r[z_inds] = r_z
     return r
 end
@@ -580,10 +682,11 @@ function get_combined_direction(program::ConeQP,
     x_inds = program.inds_c
     z_inds = program.inds_h
     b_z = @view program.KKT_b[z_inds]
-    b = b_z - G * x[x_inds]
+    G_x = G * x[x_inds]
+    b = b_z - G_x
     W_b = get_inv_weighted_mat(program, b)
     Δz = -get_inv_weighted_mat(program, W_b, true)
-    Δs = d_z - b_z + b
+    Δs = d_z - G_x
     x[z_inds] = Δz[:, 1]
     Δz_scaled = get_weighted_mat(program, Δz[:, 1])
     Δs_scaled = get_inv_weighted_mat(program, Δs)
@@ -593,6 +696,8 @@ end
 
 function get_solver_status(i::Int32,
                            program::ConeQP,
+                           gap_atol::Float64,
+                           gap_rtol::Float64,
                            tol::Float64)
     x = program.KKT_x
     s = program.s
@@ -605,7 +710,11 @@ function get_solver_status(i::Int32,
     # evaluate residual
     r = evaluate_residual(program, x, x_inds, y_inds, z_inds)
     r_x = @view r[x_inds]
-    r_y = @view r[y_inds]
+    if isdefined(program, :A)
+        r_y = @view r[y_inds]
+    else
+        r_y = [0]
+    end
     r_z = @view r[z_inds]
     
     # evaluate gap
@@ -617,7 +726,7 @@ function get_solver_status(i::Int32,
 
     # evaluate stopping criteria
     z = @view x[z_inds]
-    result = check_optimality_conditions(program, tol, r, s, z)
+    result = is_optimal(program, r, s, z, gap_atol, gap_rtol, tol)
     log_iteration_status(i, r_x, r_y, r_z, μ, result)
 
     return result, r, μ

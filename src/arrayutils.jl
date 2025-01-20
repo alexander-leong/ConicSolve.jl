@@ -85,6 +85,26 @@ function mat(x::AbstractArray)
     return X
 end
 
+"""
+    apply_cart_on_f(f, args...)
+
+### Output
+
+Returns an array of f(x...) passing each value x of the cartesian product args...
+i.e. example input
+```julia
+a = [0, 1]
+b = [3, 2]
+vals = apply_cart_on_f(f, a, b)
+```
+yields
+vals = [f(0, 3), f(0, 2), f(1, 3), f(1, 2)]
+"""
+function apply_cart_on_f(f, args...)
+    vals = map(z -> f(z...), reduce(vcat, Iterators.product(args...)))
+    return vals
+end
+
 function flatten_2d(mask_idx, nCols)
     return map(x -> nCols * (x[1] - 1) + x[2], mask_idx)
 end

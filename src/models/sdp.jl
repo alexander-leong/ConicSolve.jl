@@ -5,8 +5,6 @@ This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.
 file in the root directory
 =#
 
-include("../cones/cone.jl")
-
 """
     SDP
 

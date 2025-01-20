@@ -10,10 +10,11 @@ via Nuclear-norm minimization and SDP embedding lemma.
 see Matrix Rank Minimization with Applications, Fazel (2002)
 """
 
-include("../../../src/cones/nonneg.jl")
-include("../../../src/cones/psdcone.jl")
 include("../../../src/arrayutils.jl")
 include("../../../src/imageutils.jl")
+include("../../../src/cones/cone.jl")
+include("../../../src/cones/nonneg.jl")
+include("../../../src/cones/psdcone.jl")
 include("../../../src/models/sdp.jl")
 include("../../../src/solver.jl")
 
