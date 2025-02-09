@@ -12,11 +12,13 @@ makedocs(;
     remotes = nothing,
     pages=[
         "Readme" => "index.md",
+        "Design" => "design.md",
         "Tutorial" => "tutorial.md",
         "Examples" => ["examples/maximum_flow.md",
                        "examples/beamforming.md",
                        "examples/portfolio.md",
-                       "examples/denoise.md"],
+                       "examples/denoise.md",
+                       "examples/trajectory_optimization.md"],
         "API Reference" => "functions.md"
     ],
     format = Documenter.HTML(

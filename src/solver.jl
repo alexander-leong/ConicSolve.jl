@@ -87,6 +87,18 @@ mutable struct ConeQP
     * `c`: The vector c corresponding to ``c^Tx``
     * `h`: The vector h corresponding to ``Gx + s = h``
     * `cones`: A vector of cone types
+
+    The cones vector is an ordered vector corresponding to the
+    conic constraints defined by:
+    ```math
+    \\begin{aligned}
+    Gx + s = h \\\\
+    s \\succeq_K 0
+    \\end{aligned}
+    ```
+    where ``\\succeq_K`` is a generalized inequality with respect to cone K.
+
+    NOTE: The K is sometimes dropped to simplify notation.
     """
     function ConeQP(A::AbstractArray{Float64},
                     G::AbstractArray{Float64},
@@ -224,7 +236,7 @@ mutable struct Solver
                     tol_optimality=1e-6,
                     max_iterations=100,
                     time_limit_sec=1e6,
-                    η=0.0,
+                    η=nothing,
                     γ::Float64=1.0)
         solver = new()
         solver.current_iteration = 1
@@ -462,7 +474,8 @@ end
 
 function alpha_d(program::ConeQP)
     α_vec = map(k -> alpha_d(k), program.cones)
-    return α_vec[argmax(abs.(α_vec))]
+    # FIXME return α_vec[argmax(abs.(α_vec))]
+    return -minimum(-α_vec)
 end
 
 function get_num_constraints(program::ConeQP)

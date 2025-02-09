@@ -37,6 +37,23 @@ function svec(X::AbstractArray)
     return x
 end
 
+function mat_to_lower_vec(X)
+    N = size(X)
+    if N[1] != N[2]
+        throw(DimensionMismatch("X is not square"))
+    end
+    n = (N[1] * (N[1] + 1)) / 2
+    x = zeros((Int(n)))
+    k = 1
+    for j in 1:N[1]
+        for i = j:N[1]
+            x[k] = X[i, j]
+            k = k + 1
+        end
+    end
+    return x
+end
+
 """
     mat(u)
 
@@ -195,6 +212,45 @@ function get_mask(cond, data)
 end
 
 """
+    get_off_diagonal_idx(n)
+
+Get vectorized lower triangular off diagonal indices.
+For example, the following entries returned:
+idx = [2, 3, 4, 6, 7, 9] correspond to the matrix of n=4:
+[1 2 3 4; 2 5 6 7; 4 7 9 10]
+"""
+function get_off_diagonal_idx(n)
+    idx = []
+    for j = 1:n
+        for i = j+1:n
+            push!(idx, CartesianIndex((i, j)))
+        end
+    end
+    mask = ones(Bool, (n, n))
+    mask[diagind(mask)] .= false
+    idx = filter(x -> mask[x[1], x[2]], idx)
+    idx = lower_triangular_from_2d_idx(n, idx)
+    return idx
+end
+
+"""
+    get_diagonal_idx(n)
+
+Get vectorized diagonal indices.
+For example, the following entries returned:
+idx = [1, 5, 8, 10] correspond to the matrix of n=4:
+[1 2 3 4; 2 5 6 7; 4 7 9 10]
+"""
+function get_diagonal_idx(n)
+    idx = []
+    for i = 1:n
+        push!(idx, CartesianIndex((i, i)))
+    end
+    idx = lower_triangular_from_2d_idx(n, idx)
+    return idx
+end
+
+"""
     get_triangular_idx(A_idx, mask)
 
 Get vectorized lower triangular indices given a 2d mask.
@@ -208,8 +264,11 @@ end
 
 export svec
 export mat
+export mat_to_lower_vec
 export lower_triangular_from_2d_idx
 export dropzero_rows
 export get_block_matrix
 export get_mask
+export get_off_diagonal_idx
+export get_diagonal_idx
 export get_triangular_idx

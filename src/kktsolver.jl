@@ -52,7 +52,8 @@ function gram(G, sparse_G=false)
     if sparse_G == true
         return sparse_gram(G)
     end
-    return G' * G
+    R = qr(G).R
+    return R' * R
 end
 
 """
@@ -90,6 +91,7 @@ x = \\begin{bmatrix}
 The vectors ``x`` and ``y`` (nothing, if not present).
 """
 function full_qr_solve(kktsystem, b_x, b_y, b_z, sparse_G=false)
+    # FIXME: refactor
     G = kktsystem.G
     P = kktsystem.P
     if kktsystem.P === nothing
@@ -114,12 +116,11 @@ function full_qr_solve(kktsystem, b_x, b_y, b_z, sparse_G=false)
         Q_21_A = Q_2' * Q_A
         Q_12_A = Q_21_A'
         U = cholesky(Q_A).U * Q_2
-        Q_2_A = cholesky(U' * U)
+        Q_2_A = cholesky(U' * U).L
         A₁₁x₁ = Q_1_A * Q_1 * Q_1_x
         A₂₁x₁ = Q_21_A * Q_1 * Q_1_x
-        inv_Q_2_A = inv(Q_2_A.U)
-        L = inv_Q_2_A * inv_Q_2_A'
-        Q_2_x = L * (Q_2' * b_2 - A₂₁x₁)
+        U_Q_2_x = Q_2_A \ (Q_2' * b_2 - A₂₁x₁)
+        Q_2_x = Q_2_A' \ U_Q_2_x
         A₁₂x₂ = Q_1' * Q_12_A * Q_2_x
         y = R \ ((Q_1' * b_1) - A₁₁x₁ - A₁₂x₂)
         x = Q * [Q_1_x; Q_2_x]

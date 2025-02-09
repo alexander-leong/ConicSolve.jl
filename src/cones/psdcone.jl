@@ -110,7 +110,7 @@ function update_scaling_vars(cone::PSDCone,
     inv_sqrt_λ = inv.(sqrt_λ)
     inv_sqrt_Λ = Diagonal(inv_sqrt_λ)
     R = cone.W * L₁_L * V * inv_sqrt_Λ
-    inv_R = inv_sqrt_Λ * U' * L₂_U * inv(cone.W)
+    inv_R = inv_sqrt_Λ * U' * L₂_U * cone.inv_W
     cone.W = R
     cone.inv_W = inv_R
 end

@@ -10,13 +10,16 @@ via Nuclear-norm minimization and SDP embedding lemma.
 see Matrix Rank Minimization with Applications, Fazel (2002)
 """
 
-include("../../../src/arrayutils.jl")
-include("../../../src/imageutils.jl")
-include("../../../src/cones/cone.jl")
-include("../../../src/cones/nonneg.jl")
-include("../../../src/cones/psdcone.jl")
-include("../../../src/models/sdp.jl")
-include("../../../src/solver.jl")
+include("./imageutils.jl")
+
+using ConicSolve
+using JLD
+# include("../../../src/arrayutils.jl")
+# include("../../../src/cones/cone.jl")
+# include("../../../src/cones/nonneg.jl")
+# include("../../../src/cones/psdcone.jl")
+# include("../../../src/models/sdp.jl")
+# include("../../../src/solver.jl")
 
 function denoise_image(img::Matrix{Float64},
                        noise::Matrix{Float64})
@@ -42,8 +45,11 @@ end
 
 function run_example()
     @info "Getting data"
-    img, noise = preprocess_data()
+    # img, noise = preprocess_data()
+    data = load("/home/alexander/Documents/alexander_leong/ConicSolve.jl/data.jld")
     x_l, x_u, y_l, y_u = 49, 56, 49, 56
+    img = data["img"]
+    noise = data["noise"]
     img = get_block_matrix(img, x_l, y_l, x_u, y_u)
     noise = get_block_matrix(noise, x_l, y_l, x_u, y_u)
     @info "Constructing optimization problem"

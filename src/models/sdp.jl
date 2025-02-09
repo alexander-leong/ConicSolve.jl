@@ -175,7 +175,7 @@ function set_off_diag_constraint(sdp::SDP, data, mask)
     # set A, b as values of non noise image
     b_idx, b = set_b_from_data(sdp, data)
     noise_idx = get_triangular_idx(sdp.idx, mask)
-    noise_idx = map(x -> CartesianIndex(x[1], x[1]), noise_idx)
+    noise_idx = map(x -> CartesianIndex(x[1], x[2]), noise_idx)
     A[noise_idx] .= 0
     A = A[b_idx, :]
     
