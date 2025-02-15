@@ -90,6 +90,12 @@ This solver has been developed for the sole purpose of investigating new and exi
 
 This project is still a work in progress. Any contributions to add additional examples and use cases are welcome! Even if you can't contribute, please consider providing financial assistance if you have found this project useful in your work.
 
+# Reference Material
+
+```@raw html
+<a href="./assets/ConicSolve.pdf"/>Project Poster
+```
+
 # License
 MIT License
 

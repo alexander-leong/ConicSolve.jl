@@ -56,8 +56,10 @@ function run_example()
     
     # solve optimization problem
     solver = Solver(cone_qp)
-    optimize!(solver)
-    x = get_solution(solver)
+    solver.max_iterations = 20
+    status = optimize!(solver)
+    return status
+    # x = get_solution(solver)
 end
 
-run_example()
+# run_example()

@@ -26,20 +26,12 @@ mutable struct NonNegativeOrthant <: Cone
 end
 
 function alpha_p(cone::NonNegativeOrthant)
-    if cone.z isa AbstractArray{ComplexF64}
-        α_p = minimum(map(x -> minimum((real(x), imag(x))), -cone.z))
-    else
-        α_p = minimum(-cone.z)
-    end
+    α_p = minimum(-cone.z)
     return α_p
 end
 
 function alpha_d(cone::NonNegativeOrthant)
-    if cone.z isa AbstractArray{ComplexF64}
-        α_d = -minimum(map(x -> minimum((real(x), imag(x))), cone.z))
-    else
-        α_d = -minimum(cone.z)
-    end
+    α_d = minimum(cone.z)
     return α_d
 end
 

@@ -66,7 +66,7 @@ function run_example()
     # β - risks (scalar, vector)
     β = 0.25
     # load data
-    df = CSV.read("./data/portfolio.csv", DataFrame)
+    df = CSV.read("./examples/portfolio_optimization/data/portfolio.csv", DataFrame)
     pf = Matrix(df)
     # get optimization problem
     cone_qp = get_qp(pf, α, β)

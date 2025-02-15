@@ -28,7 +28,7 @@ function denoise_image(img::Matrix{Float64},
     set_nonnegative_constraint(sdp)
     c = get_trace(sdp)
     set_objective(sdp, c)
-    qp = get_qp(sdp)
+    qp = sdp_to_qp(sdp)
     return qp
 end
 
@@ -55,9 +55,11 @@ function run_example()
     @info "Constructing optimization problem"
     cone_qp = denoise_image(img, noise)
     solver = Solver(cone_qp)
-    optimize!(solver)
-    x = get_solution(solver)
+    solver.max_iterations = 20
+    status = optimize!(solver)
+    return status
+    # x = get_solution(solver)
     @info "Done"
 end
 
-run_example()
+# run_example()

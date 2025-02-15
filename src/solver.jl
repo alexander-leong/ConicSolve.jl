@@ -179,6 +179,26 @@ mutable struct ConeQP
     end
 end
 
+mutable struct SolverStatus
+    current_iteration::Int32
+    duality_gap::AbstractArray{Float64}
+    residual_x::AbstractArray{Float64}
+    residual_y::AbstractArray{Float64}
+    residual_z::AbstractArray{Float64}
+    status_termination::Union{TerminationStatus, Nothing}
+
+    function SolverStatus()
+        status = new()
+        status.current_iteration = 0
+        status.duality_gap = []
+        status.residual_x = []
+        status.residual_y = []
+        status.residual_z = []
+        status.status_termination = OPTIMIZE_NOT_CALLED
+        return status
+    end
+end
+
 """
     Solver
 
@@ -197,6 +217,7 @@ mutable struct Solver
     obj_primal_value::Float64
     program::ConeQP
     solve_time
+    status::SolverStatus
     status_dual
     status_primal
     status_termination::Union{TerminationStatus, Nothing}
@@ -247,6 +268,7 @@ mutable struct Solver
         solver.limit_soln = limit_soln
         solver.max_iterations = max_iterations
         solver.num_threads = 1
+        solver.status = SolverStatus()
         solver.time_limit_sec = time_limit_sec
         solver.tol_gap_abs = tol_gap_abs
         solver.tol_gap_rel = tol_gap_rel
@@ -295,16 +317,17 @@ function optimize!(solver::Solver, is_init=false)
             initialize!(solver)
             check_preconditions(solver)
         end
-        optimize_main!(solver)
+        result = optimize_main!(solver)
         log_msg = ("Solver finished" * "\n" *
-            "Exit status: " * string(solver.status_termination) * "\n" *
+            "Exit status: " * string(solver.status.status_termination) * "\n" *
             "Primal objective value: " * string(solver.obj_primal_value) * "\n" *
             "Number of iterations: " * string(solver.current_iteration - 1) * "\n" *
             "Time elapsed: " * string(solver.solve_time))
         @info log_msg
+        return result
     catch err
         if isa(err, LAPACKException)
-            solver.status_termination = NUMERICAL_ERROR
+            solver.status.status_termination = NUMERICAL_ERROR
         end
     end
 end
@@ -324,20 +347,20 @@ end
 function check_preconditions(solver::Solver)
     qp = solver.program
     if isdefined(qp, :A) && rank(qp.A) < size(qp.A)[1]
-        solver.status_termination = INFEASIBLE
+        solver.status.status_termination = INFEASIBLE
         @error "Values of A are inconsistent or redundant."
         @assert false
     end
     if isdefined(qp, :A)
         if rank([qp.P qp.A' qp.G']) < size(qp.P)[1]
-            solver.status_termination = INFEASIBLE
+            solver.status.status_termination = INFEASIBLE
             @error "There are some constraints in the problem that are either
             redundant or inconsistent."
             @assert false
         end
     else
         if rank([qp.P qp.G']) < size(qp.P)[1]
-            solver.status_termination = INFEASIBLE
+            solver.status.status_termination = INFEASIBLE
             @error "There are some constraints in the problem that are either
             redundant or inconsistent."
             @assert false
@@ -353,26 +376,24 @@ function optimize_main!(solver::Solver)
     @info "Executing main optimization loop"
     while true
         i = solver.current_iteration
-        if i > solver.max_iterations
-            solver.status_termination = ITERATION_LIMIT
-            break
-        end
         itr_time_elapsed = @elapsed begin
         program = solver.program
         P = program.P
         c = program.c
         x = @view program.KKT_x[1:size(P)[1]]
-        if abs(solver.obj_primal_value) <= solver.limit_obj
-            solver.status_termination = OBJECTIVE_LIMIT
-            return
+        result, r, μ = get_solver_status(solver)
+        status = solver.status
+        if i > solver.max_iterations
+            solver.status.status_termination = ITERATION_LIMIT
+            return status
         end
-        tol = solver.tol_optimality
-        tol_gap_abs = solver.tol_gap_abs
-        tol_gap_rel = solver.tol_gap_rel
-        result, r, μ = get_solver_status(i, program, tol_gap_abs, tol_gap_rel, tol)
+        if abs(solver.obj_primal_value) <= solver.limit_obj
+            solver.status.status_termination = OBJECTIVE_LIMIT
+            return status
+        end
         if result == true
-            solver.status_termination = OPTIMAL
-            break
+            solver.status.status_termination = OPTIMAL
+            return status
         end
         η = solver.η
         γ = solver.γ
@@ -381,8 +402,8 @@ function optimize_main!(solver::Solver)
         log_msg = ("Primal objective value: " * string(primal_obj))
         @info log_msg
         if abs(primal_obj - solver.obj_primal_value) < solver.tol_gap_abs
-            solver.status_termination = SLOW_PROGRESS
-            break
+            solver.status.status_termination = SLOW_PROGRESS
+            return status
         end
         solver.obj_primal_value = primal_obj
         end
@@ -390,14 +411,14 @@ function optimize_main!(solver::Solver)
         total_time_elapsed = total_time_elapsed + itr_time_elapsed
         solver.solve_time = total_time_elapsed
         if total_time_elapsed > solver.time_limit_sec
-            solver.status_termination = TIME_LIMIT
+            solver.status.status_termination = TIME_LIMIT
             break
         end
     end
 end
 
 function initialize!(solver::Solver)
-    solver.status_termination = OPTIMIZE_NOT_CALLED
+    solver.status.status_termination = OPTIMIZE_NOT_CALLED
     log_solver_parameters(solver)
     initialize!(solver.program)
 end
@@ -474,8 +495,7 @@ end
 
 function alpha_d(program::ConeQP)
     α_vec = map(k -> alpha_d(k), program.cones)
-    # FIXME return α_vec[argmax(abs.(α_vec))]
-    return -minimum(-α_vec)
+    return -minimum(α_vec)
 end
 
 function get_num_constraints(program::ConeQP)
@@ -707,11 +727,12 @@ function get_combined_direction(program::ConeQP,
     return Δs, Δs_scaled, Δz_scaled, x
 end
 
-function get_solver_status(i::Int32,
-                           program::ConeQP,
-                           gap_atol::Float64,
-                           gap_rtol::Float64,
-                           tol::Float64)
+function get_solver_status(solver::Solver)
+    i = solver.current_iteration
+    gap_atol = solver.tol_gap_abs
+    gap_rtol = solver.tol_gap_rel
+    tol = solver.tol_optimality
+    program = solver.program
     x = program.KKT_x
     s = program.s
 
@@ -741,6 +762,14 @@ function get_solver_status(i::Int32,
     z = @view x[z_inds]
     result = is_optimal(program, r, s, z, gap_atol, gap_rtol, tol)
     log_iteration_status(i, r_x, r_y, r_z, μ, result)
+
+    # save status
+    status = solver.status
+    status.current_iteration = i
+    push!(status.duality_gap, μ)
+    push!(status.residual_x, norm(r_x))
+    push!(status.residual_y, norm(r_y))
+    push!(status.residual_z, norm(r_z))
 
     return result, r, μ
 end

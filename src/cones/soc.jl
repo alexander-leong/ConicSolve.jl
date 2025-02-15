@@ -37,7 +37,7 @@ function alpha_p(cone::SecondOrderCone)
 end
 
 function alpha_d(cone::SecondOrderCone)
-    α_d = -(cone.z[1] - norm(cone.z[2:end]))
+    α_d = cone.z[1] - norm(cone.z[2:end])
     return α_d
 end
 

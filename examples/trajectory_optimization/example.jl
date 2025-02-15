@@ -26,20 +26,20 @@ function get_traj_qp()
     add_polynomial_equality_constraint(sos, 5, p)
     # set initial x-velocity at t = 0 less than or equal to 5
     p = evaluate_monomials(v_sos, 0)
-    add_polynomial_inequality_constraint(sos, 2.5, p)
+    add_polynomial_inequality_constraint(sos, 5.5, p)
     # set x-velocity less than or equal to 5
     p = evaluate_monomials(v_sos, 1)
-    add_polynomial_inequality_constraint(sos, 7.5, p)
+    add_polynomial_inequality_constraint(sos, 1.5, p)
     
     num_vars = size(sos.A)[2]
     # set objective as min. jerk
     P = zeros((num_vars, num_vars))
-    inds = get_inds_2d(sos, 3)
+    inds = get_inds(sos, 4, 2)
     P[inds] .= 1
     c = zeros(num_vars)
     set_objective(sos, P, c)
 
-    cone_qp = get_qp(sos)
+    cone_qp = sos_to_qp(sos)
     return cone_qp
 end
 
@@ -48,8 +48,10 @@ function run_example()
 
     # solve optimization problem
     solver = Solver(cone_qp)
-    optimize!(solver)
+    solver.max_iterations = 20
+    status = optimize!(solver)
+    return status
     # x = get_solution(solver)
 end
 
-run_example()
+# run_example()

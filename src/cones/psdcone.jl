@@ -38,7 +38,7 @@ function alpha_p(cone::PSDCone)
 end
 
 function alpha_d(cone::PSDCone)
-    α_d = maximum(eigen(mat(-cone.z)).values)
+    α_d = minimum(eigen(mat(cone.z)).values)
     return α_d
 end
 

@@ -108,13 +108,18 @@ function get_inds_2d(sos::SOS, n)
             break
         end
     end
+    inds = map(x -> CartesianIndex(x[1], x[2]), inds)
     return inds
 end
 
-function get_inds(sos::SOS, n)
+function get_inds(sos::SOS, n, dim=1)
     inds = get_inds_2d(sos, n)
     inds = lower_triangular_from_2d_idx(sos.n, inds)
-    inds = map(x -> CartesianIndex(1, x), inds)
+    if dim == 1
+        inds = map(x -> CartesianIndex(1, x), inds)
+    else
+        inds = map(x -> CartesianIndex(x, x), inds)
+    end
     return inds
 end
 
@@ -202,19 +207,19 @@ function add_polynomial_inequality_constraint(sos::SOS, h, p)
 end
 
 """
-    get_qp(sos)
+    sos_to_qp(sos)
 
 Get the Cone QP object representing the SOS optimization problem
 """
-function get_qp(sos::SOS)
+function sos_to_qp(sos::SOS)
     cone_qp = ConeQP(sos.A, sos.G, sos.P, sos.b, sos.c, sos.h, sos.cones)
     return cone_qp
 end
 
 export SOS
-export get_inds_2d
+export get_inds
 export set_objective
 export set_diagonal_Q_constraint
 export add_polynomial_equality_constraint
 export add_polynomial_inequality_constraint
-export get_qp
+export sos_to_qp
