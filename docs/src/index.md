@@ -93,7 +93,7 @@ This project is still a work in progress. Any contributions to add additional ex
 # Reference Material
 
 ```@raw html
-<a href="./assets/ConicSolve.pdf"/>Project Poster
+<a href="./assets/ConicSolve.pdf">Project Poster
 ```
 
 # License
