@@ -5,8 +5,6 @@ This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.
 file in the root directory
 =#
 
-include("../cones/cone.jl")
-
 """
     SDP
 
@@ -109,11 +107,11 @@ function set_values(sdp::SDP, mask)
 end
 
 """
-    get_qp(sdp)
+    sdp_to_qp(sdp)
 
 Get the Cone QP object representing the SDP problem
 """
-function get_qp(sdp::SDP)
+function sdp_to_qp(sdp::SDP)
     sdp.P = zeros((size(sdp.A)[2], size(sdp.A)[2]))
     sdp.h = zeros(size(sdp.G)[1])
     cone_qp = ConeQP(sdp.A, sdp.G, sdp.P, sdp.b, sdp.c, sdp.h, sdp.cones)
@@ -177,7 +175,7 @@ function set_off_diag_constraint(sdp::SDP, data, mask)
     # set A, b as values of non noise image
     b_idx, b = set_b_from_data(sdp, data)
     noise_idx = get_triangular_idx(sdp.idx, mask)
-    noise_idx = map(x -> CartesianIndex(x[1], x[1]), noise_idx)
+    noise_idx = map(x -> CartesianIndex(x, x), noise_idx)
     A[noise_idx] .= 0
     A = A[b_idx, :]
     
@@ -231,7 +229,7 @@ export SDP
 export set_nonnegative_constraint
 export set_objective
 export set_values
-export get_qp
+export sdp_to_qp
 export get_X1
 export set_b_from_data
 export set_off_diag_constraint

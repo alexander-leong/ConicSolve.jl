@@ -16,6 +16,10 @@ using ConicSolve
 
 Please refer to the package documentation at [Package Documentation](https://github.com/alexander-leong/ConicSolve.jl/blob/v0.0.1/docs/src/index.md)
 
+# Reference Material
+
+<a href="https://github.com/alexander-leong/ConicSolve.jl/tree/main/docs/src/assets/ConicSolve.pdf">Project Poster
+
 # License
 MIT License
 

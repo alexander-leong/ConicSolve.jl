@@ -5,8 +5,11 @@ This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.
 file in the root directory
 =#
 
-include("cone.jl")
+"""
+    NonNegativeOrthant
 
+Represents a nonnegative p-vector conic constraint.
+"""
 mutable struct NonNegativeOrthant <: Cone
     W
     inv_W
@@ -32,7 +35,7 @@ function alpha_d(cone::NonNegativeOrthant)
     return α_d
 end
 
-function get_mat_size(cone::NonNegativeOrthant)
+function get_size(cone::NonNegativeOrthant)
     return cone.p
 end
 

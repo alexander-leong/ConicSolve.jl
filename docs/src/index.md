@@ -4,7 +4,7 @@
 
 # Introduction
 
-ConicSolve.jl is an Interior Point based constrained optimization solver based on the paper [Vandenberghe, 2010, The CVXOPT linear and quadratic cone program solvers](https://www.seas.ucla.edu/~vandenbe/publications/coneprog.pdf). It can be used to solve several problem classes including LP (Linear Program), QP (Quadratic Program) and SDP (Semidefinite Program).
+ConicSolve.jl is a Primal-Dual Interior-Point method constrained optimization solver based on the paper [Vandenberghe, 2010, The CVXOPT linear and quadratic cone program solvers](https://www.seas.ucla.edu/~vandenbe/publications/coneprog.pdf). It can be used to solve several problem classes including LP (Linear Program), QP (Quadratic Program) and SDP (Semidefinite Program).
 
 !!! warning
     This solver is experimental, APIs and implementation are subject to change without notice. The solver has not been rigorously tested, may contain bugs and numerical stability issues.
@@ -36,19 +36,6 @@ using ConicSolve
 There are two ways to construct an optimization problem in ConicSolve.jl
 1. Using the Low Level API
 2. Using models to precompute matrices before invoking the low level API
-
-Here is an example of solving the rank minimization problem with an additional nonnegative constraint
-```math
-\begin{aligned}
-\text{minimize}\qquad &
-rank\hspace{0.1cm}X \\
-\text{subject to}\qquad &
-\mathcal{A}(X) = b \\
-& X \succeq 0 \\
-& X_{ij} >= 0
-\end{aligned}
-```
-see [Recht, Fazel, Parrilo, 2010, Guaranteed Minimum-Rank Solutions of Linear Matrix Equations via Nuclear Norm Minimization](https://www.mit.edu/~parrilo/pubs/files/RechtFazelParrilo-GuaranteedMinimumRankSolutionsOfLinearMatrixEquationsViaNuclearNormMinimization-SIAM.pdf) for more details.
 
 ### Using the Low Level API
 ```julia
@@ -102,6 +89,12 @@ In the examples directory you will find a matrix completion example for image de
 This solver has been developed for the sole purpose of investigating new and existing applications for Interior Point based methods by creating a solver that has minimal project dependencies, is highly performant, general purpose, extensible and most importantly is free for public use.
 
 This project is still a work in progress. Any contributions to add additional examples and use cases are welcome! Even if you can't contribute, please consider providing financial assistance if you have found this project useful in your work.
+
+# Reference Material
+
+```@raw html
+<a href="./assets/ConicSolve.pdf">Project Poster
+```
 
 # License
 MIT License

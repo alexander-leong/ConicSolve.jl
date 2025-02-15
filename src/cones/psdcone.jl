@@ -7,8 +7,11 @@ file in the root directory
 
 using LinearAlgebra
 
-include("cone.jl")
+"""
+    PSDCone
 
+Represents a positive semidefinite cone constraint.
+"""
 mutable struct PSDCone <: Cone
     W
     inv_W
@@ -18,15 +21,11 @@ mutable struct PSDCone <: Cone
     λ
     _svd
 
-    function PSDCone(p, svdmethod="QR")
+    function PSDCone(p)
         cone_psd = new()
         cone_psd.p = p
         function svdfact(A)
-            if svdmethod == "QR"
-                return svd(A, alg=LinearAlgebra.QRIteration())
-            else
-                return svd(A, alg=LinearAlgebra.QRIteration())
-            end
+            return svd(A, alg=LinearAlgebra.QRIteration())
         end
         cone_psd._svd = svdfact
         return cone_psd
@@ -39,11 +38,11 @@ function alpha_p(cone::PSDCone)
 end
 
 function alpha_d(cone::PSDCone)
-    α_d = maximum(eigen(mat(-cone.z)).values)
+    α_d = minimum(eigen(mat(cone.z)).values)
     return α_d
 end
 
-function get_mat_size(cone::PSDCone)
+function get_size(cone::PSDCone)
     return Int((cone.p * (cone.p + 1)) / 2)
 end
 
@@ -91,7 +90,6 @@ end
 function get_scaling_factors(cone::PSDCone)
     L₁_L = cholesky(mat(cone.s)).L
     L₂_U = cholesky(mat(cone.z)).U
-    # need to use more numerically stable SVD method
     U, S, V = cone._svd(L₂_U * L₁_L)
     return L₁_L, L₂_U, U, S, V'
 end
@@ -112,7 +110,7 @@ function update_scaling_vars(cone::PSDCone,
     inv_sqrt_λ = inv.(sqrt_λ)
     inv_sqrt_Λ = Diagonal(inv_sqrt_λ)
     R = cone.W * L₁_L * V * inv_sqrt_Λ
-    inv_R = inv_sqrt_Λ * U' * L₂_U * inv(cone.W)
+    inv_R = inv_sqrt_Λ * U' * L₂_U * cone.inv_W
     cone.W = R
     cone.inv_W = inv_R
 end

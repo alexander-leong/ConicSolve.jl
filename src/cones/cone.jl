@@ -6,5 +6,4 @@ file in the root directory
 =#
 
 abstract type Cone end
-
 export Cone
