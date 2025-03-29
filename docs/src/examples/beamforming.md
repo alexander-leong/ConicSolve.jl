@@ -12,7 +12,7 @@ Consider the optimization problem below, in this case we'll assume a given direc
 ```math
 \begin{aligned}
 \underset{z_1,...,z_N \in \mathbb{C}}{minimize}\qquad &
-\abs{Z_*(\delta) - \sum_{j=1}^Nz_jZ_j(\delta)}
+|Z_*(\delta) - \sum_{j=1}^Nz_jZ_j(\delta)|
 \end{aligned}
 ```
 

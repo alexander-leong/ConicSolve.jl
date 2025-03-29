@@ -40,17 +40,17 @@ end
 
 Represents a Conic Quadratic Program.
 """
-mutable struct ConeQP
+mutable struct ConeQP{T<:Number, U<:Number, V<:Number}
     A::AbstractArray{Float64}
-    G::AbstractArray{Float64}
-    KKT_b::AbstractVector{Float64}
-    KKT_x::AbstractVector{Float64}
+    G::AbstractArray{V}
+    KKT_b::AbstractVector{V}
+    KKT_x::AbstractVector{V}
     P::AbstractArray{Float64}
     b::AbstractVector{Float64}
-    c::AbstractVector{Float64}
+    c::AbstractVector{U}
     h::AbstractVector{Float64}
-    s::AbstractVector{Float64}
-    z::AbstractVector{Float64}
+    s::AbstractVector{V}
+    z::AbstractVector{V}
     α::Float64
     
     cones::Vector{Cone}
@@ -100,14 +100,14 @@ mutable struct ConeQP
 
     NOTE: The K is sometimes dropped to simplify notation.
     """
-    function ConeQP(A::AbstractArray{Float64},
-                    G::AbstractArray{Float64},
+    function ConeQP{T, U, V}(A::AbstractArray{Float64},
+                    G::AbstractArray{T},
                     P::AbstractArray{Float64},
                     b::AbstractArray{Float64},
-                    c::AbstractArray{Float64},
+                    c::AbstractArray{U},
                     h::AbstractArray{Float64},
-                    cones::Vector{Cone})
-        cone_qp = new()
+                    cones::Vector{Cone}) where {T<:Number, U<:Number, V<:Number}
+        cone_qp = new{T, U, V}()
         cone_qp.G = G
         cone_qp.P = P
         cone_qp.c = c
@@ -339,8 +339,8 @@ Get the current objective value to the conic quadratic program
 `` x^TPx + c^Tx ``
 """
 function get_objective(P::AbstractArray{Float64},
-                       c::AbstractArray{Float64},
-                       x::AbstractArray{Float64})
+                       c::AbstractArray{U},
+                       x::AbstractArray{T}) where {T<:Number, U<:Number}
     return x' * P * x + c' * x
 end
 
@@ -387,10 +387,6 @@ function optimize_main!(solver::Solver)
             solver.status.status_termination = ITERATION_LIMIT
             return status
         end
-        if abs(solver.obj_primal_value) <= solver.limit_obj
-            solver.status.status_termination = OBJECTIVE_LIMIT
-            return status
-        end
         if result == true
             solver.status.status_termination = OPTIMAL
             return status
@@ -401,9 +397,15 @@ function optimize_main!(solver::Solver)
         primal_obj = get_objective(P, c, x)
         log_msg = ("Primal objective value: " * string(primal_obj))
         @info log_msg
-        if abs(primal_obj - solver.obj_primal_value) < solver.tol_gap_abs
-            solver.status.status_termination = SLOW_PROGRESS
-            return status
+        if P != zeros(size(P)) || c != zeros(size(P)[1])
+            if abs(solver.obj_primal_value) <= solver.limit_obj
+                solver.status.status_termination = OBJECTIVE_LIMIT
+                return status
+            end
+            if abs(primal_obj - solver.obj_primal_value) < solver.tol_gap_abs
+                solver.status.status_termination = SLOW_PROGRESS
+                return status
+            end
         end
         solver.obj_primal_value = primal_obj
         end
@@ -458,13 +460,13 @@ function log_iteration_status(i::Int32,
                               r_x::AbstractArray,
                               r_y::AbstractArray,
                               r_z::AbstractArray,
-                              g::Float64,
-                              result::Bool)
+                              g::T,
+                              result::Bool) where T <: Number
     data = ["Iterate: " i;
-    "Residual x: " norm(r_x);
-    "Residual y: " norm(r_y);
-    "Residual z: " norm(r_z);
-    "Duality gap: " g;
+    "Dual Residual (x): " norm(r_x);
+    "Primal Residual (y): " norm(r_y);
+    "Centrality Residual (z): " norm(r_z);
+    "Duality gap: " norm(g);
     "Optimal: " result ? "true" : "false";]
     print_table(data)
 end
@@ -558,8 +560,8 @@ function initialize!(program::ConeQP)
 end
 
 function check_linear_equalities(program::ConeQP,
-                                 r::Vector{Float64},
-                                 tol::Float64=1e-6)
+                                 r::Vector{T},
+                                 tol::Float64=1e-6) where T <: Number
     y_inds = program.inds_b
     z_inds = program.inds_h
     b_y = -r[y_inds]
@@ -569,17 +571,17 @@ function check_linear_equalities(program::ConeQP,
     return b_y_is_optimal && b_z_is_optimal
 end
 
-function check_linear_inequalities(s::Vector{Float64},
+function check_linear_inequalities(s::Vector{T},
                                    z::AbstractArray,
-                                   tol::Float64=1e-6)
+                                   tol::Float64=1e-6) where T <: Number
     r2 = all(s->norm(s) >= tol, s) && all(z->norm(z) >= tol, z)
     return r2
 end
 
-function check_duality_gap(s::Vector{Float64},
+function check_duality_gap(s::Vector{T},
                            z::AbstractArray,
                            atol::Float64=1e-6,
-                           rtol::Float64=1e-3)
+                           rtol::Float64=1e-3) where T <: Number
     r3 = within_tol(atol, rtol, abs(z' * s))
     return r3
 end
@@ -597,16 +599,16 @@ Certain optimality conditions may be toggled by the check_* parameters,
 though this is discouraged.
 """
 function is_optimal(program::ConeQP,
-                    r::AbstractArray{Float64},
-                    s::AbstractArray{Float64},
-                    z::AbstractArray{Float64},
+                    r::AbstractArray{T},
+                    s::AbstractArray{T},
+                    z::AbstractArray{T},
                     gap_atol::Float64,
                     gap_rtol::Float64,
                     tol::Float64,
                     check_r1=true,
                     check_r2=true,
                     check_r3=true,
-                    check_r4=true)
+                    check_r4=true) where T <: Number
     x_inds = program.inds_c
     b_x = r[x_inds]
     b_x_is_optimal = all(x->abs(x) <= tol, b_x)
@@ -624,10 +626,10 @@ function is_optimal(program::ConeQP,
 end
 
 function get_inv_weighted_mat(program::ConeQP,
-                              V::AbstractArray,
-                              transpose=false)
+                              V::AbstractArray{T},
+                              transpose=false) where T <: Number
     ncols = length(size(V)) == 1 ? 1 : size(V)[2]
-    inv_W_V = zeros((size(V)[1], ncols))
+    inv_W_V = zeros(T, (size(V)[1], ncols))
     for (k, cone) in enumerate(program.cones)
         inds = program.cones_inds[k]+1:program.cones_inds[k+1]
         inv_W_V[inds, :] = get_inv_weighted_mat(cone, V[inds, :], transpose)
@@ -636,10 +638,10 @@ function get_inv_weighted_mat(program::ConeQP,
 end
 
 function get_weighted_mat(program::ConeQP,
-                          V::AbstractArray,
-                          update_var=false)
+                          V::AbstractArray{T},
+                          update_var=false) where T <: Number
     ncols = length(size(V)) == 1 ? 1 : size(V)[2]
-    W_V = zeros((size(V)[1], ncols))
+    W_V = zeros(T, (size(V)[1], ncols))
     for (k, cone) in enumerate(program.cones)
         inds = program.cones_inds[k]+1:program.cones_inds[k+1]
         W_V[inds, :] = get_weighted_mat(cone, V[inds, :])
@@ -651,11 +653,11 @@ function get_weighted_mat(program::ConeQP,
 end
 
 function evaluate_residual(qp::ConeQP,
-                           Δx::Vector{Float64},
+                           Δx::Vector{T},
                            x_inds::UnitRange{Int64},
                            y_inds::UnitRange{Int64},
-                           z_inds::UnitRange{Int64})
-    r = zeros(Float64, length(Δx))
+                           z_inds::UnitRange{Int64}) where T <: Number
+    r = zeros(T, length(Δx))
     x = Δx[x_inds]
     z = Δx[z_inds]
     if isdefined(qp, :A)
@@ -673,9 +675,9 @@ function evaluate_residual(qp::ConeQP,
 end
 
 function get_step_size(program::ConeQP,
-                       Δs_scaled::AbstractArray{Float64},
-                       Δz_scaled::AbstractArray{Float64},
-                       α_div=1)
+                       Δs_scaled::AbstractArray{T},
+                       Δz_scaled::AbstractArray{T},
+                       α_div=1) where T <: Number
     # see page 12 (step 3. and 5.) and page 23 of coneprog.pdf for implementation
     α = zeros(length(program.cones))
     for (k, cone) in enumerate(program.cones)
@@ -691,7 +693,7 @@ function get_step_size(program::ConeQP,
 end
 
 function get_affine_direction(program::ConeQP,
-                              x::AbstractArray{Float64})
+                              x::AbstractArray)
     x_inds = program.inds_c
     z_inds = program.inds_h
     b = @view program.KKT_b[z_inds]
@@ -709,8 +711,8 @@ function get_affine_direction(program::ConeQP,
 end
 
 function get_combined_direction(program::ConeQP,
-                                d_z::AbstractArray{Float64},
-                                x::AbstractArray{Float64})
+                                d_z::AbstractArray,
+                                x::AbstractArray)
     G = program.G
     x_inds = program.inds_c
     z_inds = program.inds_h
@@ -766,7 +768,7 @@ function get_solver_status(solver::Solver)
     # save status
     status = solver.status
     status.current_iteration = i
-    push!(status.duality_gap, μ)
+    push!(status.duality_gap, norm(μ))
     push!(status.residual_x, norm(r_x))
     push!(status.residual_y, norm(r_y))
     push!(status.residual_z, norm(r_z))
@@ -775,8 +777,8 @@ function get_solver_status(solver::Solver)
 end
 
 function update_iterates(program::ConeQP,
-                         Δs::AbstractArray{Float64},
-                         Δx::AbstractArray{Float64})
+                         Δs::AbstractArray,
+                         Δx::AbstractArray)
     s = program.s + program.α * Δs
     program.s = s[:, 1]
     z_inds = program.inds_h
@@ -788,10 +790,10 @@ end
 
 function get_central_path(program::ConeQP,
                           current_itr::Int32,
-                          r::AbstractArray{Float64},
-                          μ::Float64,
+                          r::AbstractArray{T},
+                          μ::T,
                           η=0.0,
-                          γ::Float64=1.0)
+                          γ::Float64=1.0) where T <: Number
     z_inds = program.inds_h
 
     # get scaling factors
@@ -821,14 +823,14 @@ function get_central_path(program::ConeQP,
     Δx = qp_solve(program, G_scaled, inv_W_b_z, program.kktsolve)
     Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = get_affine_direction(program, Δx)
     update_cones(program, Δsₐ, Δxₐ[z_inds])
-    
+
     @debug "Affine direction ok?: " check_affine_direction(program, λ, Δsₐ_scaled, Δzₐ_scaled)
 
     # Compute step size and centering parameter
     α = get_step_size(program, Δsₐ_scaled, Δzₐ_scaled)
     @debug "Solution after step ok?: " is_convex_cone(program, α)
     ρ = 1 - α + α^2 * dot(Δsₐ_scaled', Δzₐ_scaled) / dot(λ', λ)
-    σ = maximum((0, minimum((1, ρ))))^3
+    σ = maximum((0, minimum((1, abs(ρ)))))^3
     if η === nothing
         η = σ
     end

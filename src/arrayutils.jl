@@ -16,13 +16,13 @@ file in the root directory
 Returns a vectorized representation of the square matrix U as
 ``(U_{11}, \\sqrt{2}U_{21}, ..., \\sqrt{2}U_{p1}, U_{22}, \\sqrt{2}U_{32}, ..., \\sqrt{2}U_{p2}, ..., U_{p-1,p-1}, \\sqrt{2}U_{p,p-1}, U_{pp})``
 """
-function svec(X::AbstractArray)
+function svec(X::AbstractArray{T}) where T<:Number
     N = size(X)
     if N[1] != N[2]
         throw(DimensionMismatch("X is not square"))
     end
     n = (N[1] * (N[1] + 1)) / 2
-    x = zeros((Int(n)))
+    x = zeros(T, (Int(n)))
     k = 1
     for j in 1:N[1]
         for i = j:N[1]
@@ -70,7 +70,7 @@ Returns a matrix representation of the vector u.
 \\end{bmatrix}
 ```
 """
-function mat(x::AbstractArray)
+function mat(x::AbstractArray{T}) where T<:Number
     n = 0
     m = 1
     k = 0
@@ -86,7 +86,7 @@ function mat(x::AbstractArray)
         throw(DimensionMismatch("x is not triangular"))
     end
     n = m - 1
-    X = zeros((n, n))
+    X = zeros(T, (n, n))
     k = 1
     for j = 1:n
         for i = j:n
@@ -99,7 +99,7 @@ function mat(x::AbstractArray)
             k = k + 1
         end
     end
-    return X
+    return Hermitian(X)
 end
 
 """
@@ -217,7 +217,7 @@ end
 Get vectorized lower triangular off diagonal indices.
 For example, the following entries returned:
 idx = [2, 3, 4, 6, 7, 9] correspond to the matrix of n=4:
-[1 2 3 4; 2 5 6 7; 4 7 9 10]
+[1 2 3 4; 2 5 6 7; 3 6 8 9; 4 7 9 10]
 """
 function get_off_diagonal_idx(n)
     idx = []

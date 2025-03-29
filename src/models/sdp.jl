@@ -114,7 +114,7 @@ Get the Cone QP object representing the SDP problem
 function sdp_to_qp(sdp::SDP)
     sdp.P = zeros((size(sdp.A)[2], size(sdp.A)[2]))
     sdp.h = zeros(size(sdp.G)[1])
-    cone_qp = ConeQP(sdp.A, sdp.G, sdp.P, sdp.b, sdp.c, sdp.h, sdp.cones)
+    cone_qp = ConeQP{Float64, Float64, Float64}(sdp.A, sdp.G, sdp.P, sdp.b, sdp.c, sdp.h, sdp.cones)
     return cone_qp
 end
 

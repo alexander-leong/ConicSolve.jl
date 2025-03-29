@@ -39,7 +39,7 @@ function get_qp(G, min_G)
     cones::Vector{Cone} = []
     n = size(G)[1]
     push!(cones, NonNegativeOrthant(n))
-    cone_qp = ConeQP(A, G, P, b, c, h, cones)
+    cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
     return cone_qp
 end
 
@@ -65,11 +65,12 @@ function run_example()
       0 0 0 0 0 0 0 0
     ]
     cone_qp = get_qp(G, min_G)
-    solver = Solver(cone_qp)
+    kktsolve = minres_kkt_solve
+    solver = Solver(cone_qp, kktsolve)
     solver.max_iterations = 20
     status = optimize!(solver)
     return status
     # x = get_solution(solver)
 end
 
-# run_example()
+run_example()
