@@ -5,22 +5,45 @@ This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.
 file in the root directory
 =#
 
+include("preconditioners.jl")
+
 using LinearAlgebra
 using Logging
 
-function get_kkt_matrix(kktsystem, b_x, b_y, b_z)
-    A = kktsystem.A
-    G = kktsystem.G
-    P = kktsystem.P
-    b = vcat(b_x, b_y, b_z)
-    x_0 = zeros(length(b))
-    S_0 = [P A' G']
-    dim = (size(A)[1], length(b_y) + length(b_z))
-    S_1 = hcat(A, zeros(dim))
-    dim = (size(G)[1], length(b_y))
-    S_2 = hcat(G, zeros(dim), Matrix{Float64}(I, length(b_z), length(b_z)))
-    S = [S_0; S_1; S_2]
-    return S, b, x_0
+function get_preconditioners()
+    preconditioners = Dict(
+        "jacobi" => get_jacobi_preconditioner_matrices,
+        "none" => get_identity_preconditioner_matrices,
+        "spai" => get_spai_preconditioner_matrices,
+        "ssor" => get_ssor_preconditioner_matrices
+    )
+    return preconditioners
 end
 
-export get_kkt_matrix
+function kktmatmul(kktsystem, kkt_1_1, x)
+    P = kktsystem.P
+    A = kktsystem.A
+    inds_c = 1:size(P)[1]
+    inds_b = inds_c[end]+1:inds_c[end]+size(A)[1]
+    # inds_h = inds_b[end]+1:inds_b[end]+size(G)[1]
+    # P_x = P * x[inds_c]
+    P_x = kkt_1_1 * x[inds_c]
+    A_x = A' * x[inds_b]
+    # G_x = G' * x[inds_h]
+    # result = vcat(P_x + A_x + G_x,
+    #     A * x[inds_c],
+    #     G * x[inds_c] - x[inds_h])
+    result = vcat(P_x + A_x,
+        A * x[inds_c])
+    return result
+end
+
+function get_residual(kktsystem, kkt_1_1, b, x)
+    result = kktmatmul(kktsystem, kkt_1_1, x)
+    r = b - result
+    return r
+end
+
+export get_preconditioners
+export get_residual
+export kktmatmul

@@ -33,6 +33,7 @@ end
 
 @enum Device begin
     CPU
+    GPU
 end
 
 """
@@ -61,8 +62,7 @@ mutable struct ConeQP{T<:Number, U<:Number, V<:Number}
     inds_b::UnitRange{Int64}
     inds_h::UnitRange{Int64}
 
-    kktsolve
-    kktsystem
+    kktsystem::KKTSystem
 
     @doc"""
         ConeQP(A, G, P, b, c, h, cones)
@@ -208,6 +208,7 @@ for solving Conic Quadratic Programs.
 mutable struct Solver
     current_iteration::Int32
     device::Device
+    kktsolver::KKTSolver
     limit_obj::Union{Float64, Nothing}
     limit_soln::Union{Float64, Nothing}
     log_level
@@ -262,8 +263,8 @@ mutable struct Solver
         solver = new()
         solver.current_iteration = 1
         solver.device = CPU
+        solver.kktsolver = setup_default_kkt_solver(kktsolve, false)
         solver.program = program
-        program.kktsolve = kktsolve
         solver.limit_obj = limit_obj
         solver.limit_soln = limit_soln
         solver.max_iterations = max_iterations
@@ -291,6 +292,7 @@ end
 
 Get the solution to the optimization problem.
 """
+# FIXME: this is broken
 function get_solution(solver::Solver)
     x_inds = solver.program.inds_c
     return solver.program.KKT_x[x_inds]
@@ -393,7 +395,7 @@ function optimize_main!(solver::Solver)
         end
         η = solver.η
         γ = solver.γ
-        get_central_path(program, i, r, μ, η, γ)
+        get_central_path(solver, i, r, μ, η, γ)
         primal_obj = get_objective(P, c, x)
         log_msg = ("Primal objective value: " * string(primal_obj))
         @info log_msg
@@ -417,12 +419,6 @@ function optimize_main!(solver::Solver)
             break
         end
     end
-end
-
-function initialize!(solver::Solver)
-    solver.status.status_termination = OPTIMIZE_NOT_CALLED
-    log_solver_parameters(solver)
-    initialize!(solver.program)
 end
 
 function print_table(data)
@@ -509,7 +505,10 @@ function get_num_constraints(program::ConeQP)
     return num_constraints
 end
 
-function initialize!(program::ConeQP)
+function initialize!(solver::Solver)
+    solver.status.status_termination = OPTIMIZE_NOT_CALLED
+    log_solver_parameters(solver)
+    program = solver.program
     A = isdefined(program, :A) ? program.A : nothing
     G = program.G
     P = program.P
@@ -537,7 +536,7 @@ function initialize!(program::ConeQP)
     G_scaled = -inv_W' * program.G
     b_z = @view program.KKT_b[program.inds_h]
     inv_W_b_z = -inv_W * b_z
-    x_hat = qp_solve(program, G_scaled, inv_W_b_z, program.kktsolve)
+    x_hat = qp_solve(solver, G_scaled, inv_W_b_z, full_qr_solve)
     x_inds = 1:size(P)[1]
     program.z = -(program.h - G*x_hat[x_inds])
     z_hat = program.z
@@ -729,6 +728,35 @@ function get_combined_direction(program::ConeQP,
     return Δs, Δs_scaled, Δz_scaled, x
 end
 
+function get_iterative_affine_search_direction(solver::Solver,
+                                               G_scaled,
+                                               kkt_1_1,
+                                               inv_W_b_z)
+    program = solver.program
+    KKT_b_x = @view program.KKT_b[program.inds_c]
+    b_x = KKT_b_x + G_scaled' * inv_W_b_z
+    b = vcat(b_x, program.KKT_b[program.inds_b])
+    Δx = qp_solve_iterative(solver, G_scaled, b[:, 1], kkt_1_1, inv_W_b_z)
+    Δx = vcat(Δx, zeros(length(program.inds_h)))
+    Δs, Δs_scaled, Δz_scaled, Δx = get_affine_direction(program, Δx)
+    return Δs, Δs_scaled, Δz_scaled, Δx
+end
+
+function get_iterative_combined_search_direction(solver::Solver,
+                                                 G_scaled,
+                                                 kkt_1_1,
+                                                 inv_W_b_z)
+    program = solver.program
+    KKT_b_x = @view program.KKT_b[program.inds_c]
+    b_x = KKT_b_x + G_scaled' * inv_W_b_z
+    b = vcat(b_x, program.KKT_b[program.inds_b])
+    b_z = @view program.KKT_b[program.inds_h]
+    Δx = qp_solve_iterative(solver, G_scaled, b[:, 1], kkt_1_1, inv_W_b_z)
+    Δx = vcat(Δx, zeros(length(program.inds_h)))
+    Δs, Δs_scaled, Δz_scaled, Δx = get_combined_direction(program, b_z, Δx)
+    return Δs, Δs_scaled, Δz_scaled, Δx
+end
+
 function get_solver_status(solver::Solver)
     i = solver.current_iteration
     gap_atol = solver.tol_gap_abs
@@ -788,12 +816,14 @@ function update_iterates(program::ConeQP,
     @debug "Updated iterates"
 end
 
-function get_central_path(program::ConeQP,
+function get_central_path(solver::Solver,
                           current_itr::Int32,
                           r::AbstractArray{T},
                           μ::T,
                           η=0.0,
                           γ::Float64=1.0) where T <: Number
+    kktsolver = solver.kktsolver
+    program = solver.program
     z_inds = program.inds_h
 
     # get scaling factors
@@ -820,8 +850,10 @@ function get_central_path(program::ConeQP,
     G_scaled = get_inv_weighted_mat(program, program.G)
     b_z = @view program.KKT_b[program.inds_h]
     inv_W_b_z = get_inv_weighted_mat(program, b_z)
-    Δx = qp_solve(program, G_scaled, inv_W_b_z, program.kktsolve)
+    Δx = qp_solve(solver, G_scaled, inv_W_b_z, full_qr_solve)
     Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = get_affine_direction(program, Δx)
+    kkt_1_1 = program.P + (G_scaled' * G_scaled)
+    Δsₐ_2, Δsₐ_scaled_2, Δzₐ_scaled_2, Δxₐ_2 = get_iterative_affine_search_direction(solver, G_scaled, kkt_1_1, inv_W_b_z)
     update_cones(program, Δsₐ, Δxₐ[z_inds])
 
     @debug "Affine direction ok?: " check_affine_direction(program, λ, Δsₐ_scaled, Δzₐ_scaled)
@@ -850,8 +882,9 @@ function get_central_path(program::ConeQP,
         KKT_b_z = @view program.KKT_b[z_inds]
         KKT_b_z[inds] = b_z_k
     end
-    Δx = qp_solve(program, G_scaled, inv_W_b_z, program.kktsolve)
+    Δx = qp_solve(solver, G_scaled, inv_W_b_z, full_qr_solve)
     Δs, Δs_scaled, Δz_scaled, Δx = get_combined_direction(program, KKT_b[z_inds], Δx)
+    # Δs, Δs_scaled, Δz_scaled, Δx = get_iterative_combined_search_direction(solver, G_scaled, kkt_1_1, inv_W_b_z)
     update_cones(program, Δs, Δx[z_inds])
 
     @debug "Combined direction ok?:" check_combined_direction(program, λ, Δsₐ_scaled, Δzₐ_scaled, Δs_scaled, Δz_scaled, μ, σ)

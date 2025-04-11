@@ -70,6 +70,7 @@ function run_example()
     solver.max_iterations = 20
     status = optimize!(solver)
     return status
+    # TODO
     # x = get_solution(solver)
 end
 

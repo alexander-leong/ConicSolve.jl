@@ -47,25 +47,87 @@ mutable struct KKTSystem
     end
 end
 
-function qp_solve(program,
+mutable struct KKTSolver
+    affine_search_direction
+    combined_search_direction
+    kktsolve
+    preconditioner::String
+    preconditioners::Dict
+end
+
+function setup_default_kkt_solver(kktsolve,
+                                  iterative=false,
+                                  preconditioner="none",
+                                  preconditioners=nothing)
+    if isnothing(preconditioners)
+        preconditioners = get_preconditioners()
+    end
+    if iterative
+        solver = KKTSolver(get_iterative_affine_search_direction,
+                           get_iterative_combined_search_direction,
+                           kktsolve,
+                           preconditioner,
+                           preconditioners)
+        return solver
+    end
+    # FIXME
+    # solver = KKTSolver(get_affine_search_direction,
+    #                    get_combined_search_direction,
+    #                    kktsolve,
+    #                    preconditioner,
+    #                    preconditioners)
+    solver = KKTSolver(get_iterative_affine_search_direction,
+        get_iterative_combined_search_direction,
+        kktsolve,
+        preconditioner,
+        preconditioners)
+    return solver
+end
+
+function get_solve_args(program)
+    if isdefined(program.kktsystem, :Q)
+        if isdefined(program.kktsystem, :R)
+            b_y = @view program.KKT_b[program.inds_b]
+            return b_y
+        end
+    end
+    b_y = nothing
+    return b_y
+end
+
+function qp_solve(solver,
                   G_scaled::AbstractArray{<:Number},
                   inv_W_b_z::AbstractArray{<:Number},
                   solve=full_qr_solve)
     # page 498, 618 Boyd and Vandenberghe
     # page 29, coneprog.pdf
+    program = solver.program
     b_x = @view program.KKT_b[program.inds_c]
     program.kktsystem.G = G_scaled
-    x_vec = zeros(Number, length(program.KKT_b))
-    if isdefined(program.kktsystem, :Q) && isdefined(program.kktsystem, :R)
-        b_y = @view program.KKT_b[program.inds_b]
-        x, y = solve(program.kktsystem, b_x, b_y, inv_W_b_z)
-        x_vec[program.inds_b] = y
-    else
-        b_y = nothing
-        x, y = solve(program.kktsystem, b_x, b_y, inv_W_b_z)
-    end
-    x_vec[program.inds_c] = x
+    b_y = get_solve_args(program)
+    x_vec = solve(program.kktsystem, b_x, b_y, inv_W_b_z)
     return x_vec
 end
 
-export full_qr_solve
+function qp_solve_iterative(solver,
+                            G_scaled::AbstractArray{<:Number},
+                            b,
+                            kkt_1_1,
+                            inv_W_b_z::AbstractArray{<:Number},
+                            solve=minres_kkt_solve)
+    program = solver.program
+    kktsystem = program.kktsystem
+    kktsolver = solver.kktsolver
+    preconditioner = kktsolver.preconditioner
+    preconditioner_fn = kktsolver.preconditioners[preconditioner]
+    # b_x = @view b[program.inds_c]
+    # FIXME b_y = get_solve_args(program)
+    # b = vcat(b_x, b_y, inv_W_b_z)
+    # b = vcat(b_x, b_y)
+    x_0 = @view program.KKT_x[1:length(b)]
+    kktsystem.G = G_scaled
+    # FIXME
+    inv_M_1, inv_M_2 = preconditioner_fn(kktsystem)
+    x_vec = solve(kktsystem, kkt_1_1, b, x_0, inv_M_1, inv_M_2)
+    return x_vec
+end

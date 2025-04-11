@@ -65,10 +65,16 @@ function full_qr_solve(kktsystem, b_x, b_y, b_z, sparse_G=false)
     Q_A = kktsystem.Q_A
     b_1 = b_x + G' * b_z
     b_2 = b_1
+    x_len = size(kktsystem.P)[1]
+    y_len = size(kktsystem.A)[1]
+    z_len = size(kktsystem.G)[1]
+    n = x_len + y_len + z_len
+    x_vec = zeros(Number, n)
     if !isdefined(kktsystem, :Q) && !isdefined(kktsystem, :R)
         # no linear equality constraints
         x = Q_A \ b_1
-        return x, nothing
+        x_vec[1:x_len] = x
+        return x_vec
     else
         Q = kktsystem.Q
         R = kktsystem.R
@@ -87,8 +93,11 @@ function full_qr_solve(kktsystem, b_x, b_y, b_z, sparse_G=false)
         A₁₂x₂ = Q_1' * Q_12_A * Q_2_x
         y = R \ ((Q_1' * b_1) - A₁₁x₁ - A₁₂x₂)
         x = Q * [Q_1_x; Q_2_x]
-        return x, y
+        x_vec[1:x_len] = x
+        x_vec[x_len+1:x_len+y_len] = y
+        return x_vec
     end
 end
 
 export KKTSystem
+export full_qr_solve
