@@ -111,11 +111,14 @@ end
 
 function qp_solve_iterative(solver,
                             G_scaled::AbstractArray{<:Number},
-                            b,
                             kkt_1_1,
                             inv_W_b_z::AbstractArray{<:Number},
                             solve=minres_kkt_solve)
     program = solver.program
+    KKT_b_x = @view program.KKT_b[program.inds_c]
+    b_x = KKT_b_x + G_scaled' * inv_W_b_z
+    b = vcat(b_x, program.KKT_b[program.inds_b])
+    b = b[:, 1]
     kktsystem = program.kktsystem
     kktsolver = solver.kktsolver
     preconditioner = kktsolver.preconditioner

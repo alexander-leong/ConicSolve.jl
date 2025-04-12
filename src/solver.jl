@@ -733,10 +733,7 @@ function get_iterative_affine_search_direction(solver::Solver,
                                                kkt_1_1,
                                                inv_W_b_z)
     program = solver.program
-    KKT_b_x = @view program.KKT_b[program.inds_c]
-    b_x = KKT_b_x + G_scaled' * inv_W_b_z
-    b = vcat(b_x, program.KKT_b[program.inds_b])
-    Δx = qp_solve_iterative(solver, G_scaled, b[:, 1], kkt_1_1, inv_W_b_z)
+    Δx = qp_solve_iterative(solver, G_scaled, kkt_1_1, inv_W_b_z)
     Δx = vcat(Δx, zeros(length(program.inds_h)))
     Δs, Δs_scaled, Δz_scaled, Δx = get_affine_direction(program, Δx)
     return Δs, Δs_scaled, Δz_scaled, Δx
@@ -744,14 +741,11 @@ end
 
 function get_iterative_combined_search_direction(solver::Solver,
                                                  G_scaled,
+                                                 b_z,
                                                  kkt_1_1,
                                                  inv_W_b_z)
     program = solver.program
-    KKT_b_x = @view program.KKT_b[program.inds_c]
-    b_x = KKT_b_x + G_scaled' * inv_W_b_z
-    b = vcat(b_x, program.KKT_b[program.inds_b])
-    b_z = @view program.KKT_b[program.inds_h]
-    Δx = qp_solve_iterative(solver, G_scaled, b[:, 1], kkt_1_1, inv_W_b_z)
+    Δx = qp_solve_iterative(solver, G_scaled, kkt_1_1, inv_W_b_z)
     Δx = vcat(Δx, zeros(length(program.inds_h)))
     Δs, Δs_scaled, Δz_scaled, Δx = get_combined_direction(program, b_z, Δx)
     return Δs, Δs_scaled, Δz_scaled, Δx
@@ -850,10 +844,10 @@ function get_central_path(solver::Solver,
     G_scaled = get_inv_weighted_mat(program, program.G)
     b_z = @view program.KKT_b[program.inds_h]
     inv_W_b_z = get_inv_weighted_mat(program, b_z)
-    Δx = qp_solve(solver, G_scaled, inv_W_b_z, full_qr_solve)
-    Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = get_affine_direction(program, Δx)
+    # Δx = qp_solve(solver, G_scaled, inv_W_b_z, full_qr_solve)
+    # Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = get_affine_direction(program, Δx)
     kkt_1_1 = program.P + (G_scaled' * G_scaled)
-    Δsₐ_2, Δsₐ_scaled_2, Δzₐ_scaled_2, Δxₐ_2 = get_iterative_affine_search_direction(solver, G_scaled, kkt_1_1, inv_W_b_z)
+    Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = get_iterative_affine_search_direction(solver, G_scaled, kkt_1_1, inv_W_b_z)
     update_cones(program, Δsₐ, Δxₐ[z_inds])
 
     @debug "Affine direction ok?: " check_affine_direction(program, λ, Δsₐ_scaled, Δzₐ_scaled)
@@ -882,9 +876,9 @@ function get_central_path(solver::Solver,
         KKT_b_z = @view program.KKT_b[z_inds]
         KKT_b_z[inds] = b_z_k
     end
-    Δx = qp_solve(solver, G_scaled, inv_W_b_z, full_qr_solve)
-    Δs, Δs_scaled, Δz_scaled, Δx = get_combined_direction(program, KKT_b[z_inds], Δx)
-    # Δs, Δs_scaled, Δz_scaled, Δx = get_iterative_combined_search_direction(solver, G_scaled, kkt_1_1, inv_W_b_z)
+    # Δx = qp_solve(solver, G_scaled, inv_W_b_z, full_qr_solve)
+    # Δs, Δs_scaled, Δz_scaled, Δx = get_combined_direction(program, KKT_b[z_inds], Δx)
+    Δs, Δs_scaled, Δz_scaled, Δx = get_iterative_combined_search_direction(solver, G_scaled, KKT_b[z_inds], kkt_1_1, inv_W_b_z)
     update_cones(program, Δs, Δx[z_inds])
 
     @debug "Combined direction ok?:" check_combined_direction(program, λ, Δsₐ_scaled, Δzₐ_scaled, Δs_scaled, Δz_scaled, μ, σ)
