@@ -13,7 +13,6 @@ include("./kktsolver.jl")
 
 using LinearAlgebra
 using Logging
-using PrettyTables
 
 @enum TerminationStatus begin
     ALMOST_OPTIMAL
@@ -250,7 +249,7 @@ mutable struct Solver
     NOTE: Set η as nothing to set to σ.
     """
     function Solver(program::ConeQP,
-                    kktsolve=full_qr_solve,
+                    kktsolve="qrchol",
                     limit_obj=0,
                     limit_soln=0,
                     tol_gap_abs=1e-6,
@@ -263,7 +262,7 @@ mutable struct Solver
         solver = new()
         solver.current_iteration = 1
         solver.device = CPU
-        solver.kktsolver = setup_default_kkt_solver(kktsolve, false)
+        solver.kktsolver = setup_default_kkt_solver(kktsolve)
         solver.program = program
         solver.limit_obj = limit_obj
         solver.limit_soln = limit_soln
@@ -383,8 +382,21 @@ function optimize_main!(solver::Solver)
         P = program.P
         c = program.c
         x = @view program.KKT_x[1:size(P)[1]]
+        primal_obj = get_objective(P, c, x)
+        current_obj = solver.obj_primal_value
+        solver.obj_primal_value = primal_obj
         result, r, μ = get_solver_status(solver)
         status = solver.status
+        if i > 1 && (P != zeros(size(P)) || c != zeros(size(P)[1]))
+            if abs(solver.obj_primal_value) <= solver.limit_obj
+                solver.status.status_termination = OBJECTIVE_LIMIT
+                return status
+            end
+            if abs(current_obj - solver.obj_primal_value) < solver.tol_gap_abs
+                solver.status.status_termination = SLOW_PROGRESS
+                return status
+            end
+        end
         if i > solver.max_iterations
             solver.status.status_termination = ITERATION_LIMIT
             return status
@@ -396,21 +408,12 @@ function optimize_main!(solver::Solver)
         η = solver.η
         γ = solver.γ
         get_central_path(solver, i, r, μ, η, γ)
-        primal_obj = get_objective(P, c, x)
-        log_msg = ("Primal objective value: " * string(primal_obj))
-        @info log_msg
-        if P != zeros(size(P)) || c != zeros(size(P)[1])
-            if abs(solver.obj_primal_value) <= solver.limit_obj
-                solver.status.status_termination = OBJECTIVE_LIMIT
-                return status
-            end
-            if abs(primal_obj - solver.obj_primal_value) < solver.tol_gap_abs
-                solver.status.status_termination = SLOW_PROGRESS
-                return status
-            end
         end
-        solver.obj_primal_value = primal_obj
+        ### TEST CODE ###
+        if i == 10
+            return
         end
+        ### TEST CODE ###
         solver.current_iteration += 1
         total_time_elapsed = total_time_elapsed + itr_time_elapsed
         solver.solve_time = total_time_elapsed
@@ -421,35 +424,38 @@ function optimize_main!(solver::Solver)
     end
 end
 
-function print_table(data)
-    pretty_table(
-        data;
-        body_hlines        = [1],
-        body_hlines_format = Tuple('─' for _ = 1:4),
-        cell_alignment     = Dict((1, 1) => :l, (7, 1) => :l),
-        formatters         = ft_printf("%10.1f", 2),
-        show_header        = false,
-        tf                 = tf_borderless,
-        highlighters       = (
-            hl_cell([(1, 1)], crayon"bold"),
-            hl_col(2, crayon"dark_gray"),
-            ),
-    )
+function print_table(data, i, n=100, pad=18)
+    if i % n == 1
+        row = "| "
+        for val in eachrow(data)
+            row *= lpad(val[:][1], pad, " ") * " |"
+        end
+        println(row)
+    end
+    row = "| "
+    for val in eachrow(data)
+        row *= lpad(round(val[:][end], digits=9), pad, " ") * " |"
+    end
+    println(row)
 end
 
 function log_solver_parameters(solver::Solver)
-    data = ["Solver parameters" "";
-        "Objective limit: " solver.limit_obj;
-        "Limit solution: " solver.limit_soln;
-        "Max iterations: " solver.max_iterations;
-        "Num constraints: " get_num_constraints(solver.program);
-        "Num threads: " solver.num_threads;
-        "Time limit (seconds): " solver.time_limit_sec;
-        "Tolerance gap absolute: " solver.tol_gap_abs;
-        "Tolerance gap relative: " solver.tol_gap_rel;
-        "Tolerance optimality: " solver.tol_optimality;
+    pad = 32
+    data = [lpad("Solver parameters", pad, " ") "";
+        lpad("Objective limit: ", pad, " ") solver.limit_obj;
+        lpad("Limit solution: ", pad, " ") solver.limit_soln;
+        lpad("Max iterations: ", pad, " ") solver.max_iterations;
+        lpad("Num constraints: ", pad, " ") get_num_constraints(solver.program);
+        lpad("Num threads: ", pad, " ") solver.num_threads;
+        lpad("System Solver KKT method: ", pad, " ") solver.kktsolver.kktsolve["label"];
+        lpad("Time limit (seconds): ", pad, " ") solver.time_limit_sec;
+        lpad("Tolerance gap absolute: ", pad, " ") solver.tol_gap_abs;
+        lpad("Tolerance gap relative: ", pad, " ") solver.tol_gap_rel;
+        lpad("Tolerance optimality: ", pad, " ") solver.tol_optimality;
         ]
-    print_table(data)
+    for item in eachrow(data)
+        println("$(item[1]) $(item[2])")
+    end
 end
 
 function log_iteration_status(i::Int32,
@@ -457,14 +463,17 @@ function log_iteration_status(i::Int32,
                               r_y::AbstractArray,
                               r_z::AbstractArray,
                               g::T,
+                              pri_obj,
                               result::Bool) where T <: Number
-    data = ["Iterate: " i;
-    "Dual Residual (x): " norm(r_x);
-    "Primal Residual (y): " norm(r_y);
-    "Centrality Residual (z): " norm(r_z);
-    "Duality gap: " norm(g);
-    "Optimal: " result ? "true" : "false";]
-    print_table(data)
+    data = ["Iter." i;
+    "Dual Res. (x)" norm(r_x);
+    "Primal Res. (y)" norm(r_y);
+    "Cent. Res. (z)" norm(r_z);
+    "Gap" norm(g);
+    "Primal Obj." pri_obj;]
+    # TODO
+    n = 100
+    print_table(data, i, n)
 end
 
 function update_cones(program::ConeQP,
@@ -536,7 +545,8 @@ function initialize!(solver::Solver)
     G_scaled = -inv_W' * program.G
     b_z = @view program.KKT_b[program.inds_h]
     inv_W_b_z = -inv_W * b_z
-    x_hat = qp_solve(solver, G_scaled, inv_W_b_z, full_qr_solve)
+    kkt_1_1 = program.P + (G_scaled' * G_scaled)
+    x_hat = qp_solve(solver, G_scaled, kkt_1_1, inv_W_b_z, full_qr_solve)
     x_inds = 1:size(P)[1]
     program.z = -(program.h - G*x_hat[x_inds])
     z_hat = program.z
@@ -728,12 +738,36 @@ function get_combined_direction(program::ConeQP,
     return Δs, Δs_scaled, Δz_scaled, x
 end
 
+function get_affine_search_direction(solver::Solver,
+                                     G_scaled,
+                                     kkt_1_1,
+                                     inv_W_b_z)
+    program = solver.program
+    kktsolver_fn = solver.kktsolver.kktsolve["fn"]
+    Δx = qp_solve(solver, G_scaled, kkt_1_1, inv_W_b_z, kktsolver_fn)
+    Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = get_affine_direction(program, Δx)
+    return Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ
+end
+
+function get_combined_search_direction(solver::Solver,
+                                       G_scaled,
+                                       b_z,
+                                       kkt_1_1,
+                                       inv_W_b_z)
+    program = solver.program
+    kktsolver_fn = solver.kktsolver.kktsolve["fn"]
+    Δx = qp_solve(solver, G_scaled, kkt_1_1, inv_W_b_z, kktsolver_fn)
+    Δs, Δs_scaled, Δz_scaled, Δx = get_combined_direction(program, b_z, Δx)
+    return Δs, Δs_scaled, Δz_scaled, Δx
+end
+
 function get_iterative_affine_search_direction(solver::Solver,
                                                G_scaled,
                                                kkt_1_1,
                                                inv_W_b_z)
     program = solver.program
-    Δx = qp_solve_iterative(solver, G_scaled, kkt_1_1, inv_W_b_z)
+    kktsolver_fn = solver.kktsolver.kktsolve["fn"]
+    Δx = qp_solve_iterative(solver, G_scaled, kkt_1_1, inv_W_b_z, kktsolver_fn)
     Δx = vcat(Δx, zeros(length(program.inds_h)))
     Δs, Δs_scaled, Δz_scaled, Δx = get_affine_direction(program, Δx)
     return Δs, Δs_scaled, Δz_scaled, Δx
@@ -745,7 +779,8 @@ function get_iterative_combined_search_direction(solver::Solver,
                                                  kkt_1_1,
                                                  inv_W_b_z)
     program = solver.program
-    Δx = qp_solve_iterative(solver, G_scaled, kkt_1_1, inv_W_b_z)
+    kktsolver_fn = solver.kktsolver.kktsolve["fn"]
+    Δx = qp_solve_iterative(solver, G_scaled, kkt_1_1, inv_W_b_z, kktsolver_fn)
     Δx = vcat(Δx, zeros(length(program.inds_h)))
     Δs, Δs_scaled, Δz_scaled, Δx = get_combined_direction(program, b_z, Δx)
     return Δs, Δs_scaled, Δz_scaled, Δx
@@ -785,7 +820,8 @@ function get_solver_status(solver::Solver)
     # evaluate stopping criteria
     z = @view x[z_inds]
     result = is_optimal(program, r, s, z, gap_atol, gap_rtol, tol)
-    log_iteration_status(i, r_x, r_y, r_z, μ, result)
+    pri_obj = solver.obj_primal_value
+    log_iteration_status(i, r_x, r_y, r_z, μ, pri_obj, result)
 
     # save status
     status = solver.status
@@ -844,10 +880,8 @@ function get_central_path(solver::Solver,
     G_scaled = get_inv_weighted_mat(program, program.G)
     b_z = @view program.KKT_b[program.inds_h]
     inv_W_b_z = get_inv_weighted_mat(program, b_z)
-    # Δx = qp_solve(solver, G_scaled, inv_W_b_z, full_qr_solve)
-    # Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = get_affine_direction(program, Δx)
     kkt_1_1 = program.P + (G_scaled' * G_scaled)
-    Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = get_iterative_affine_search_direction(solver, G_scaled, kkt_1_1, inv_W_b_z)
+    Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = kktsolver.affine_search_direction(solver, G_scaled, kkt_1_1, inv_W_b_z)
     update_cones(program, Δsₐ, Δxₐ[z_inds])
 
     @debug "Affine direction ok?: " check_affine_direction(program, λ, Δsₐ_scaled, Δzₐ_scaled)
@@ -867,18 +901,18 @@ function get_central_path(solver::Solver,
     # Combined direction, i.e. solve linear equations
     # see page 29 of coneprog.pdf for solving a KKT system with SOCP and SDP constraints
     KKT_b = -(1 - η) * r
-    b_z = copy(KKT_b[z_inds])
+    b_z = @view KKT_b[z_inds]
     # see eq. 19a, 19b, 22a of coneprog.pdf
+    KKT_b_z = @view program.KKT_b[z_inds]
     for (k, cone) in enumerate(program.cones)
         inds = program.cones_inds[k]+1:program.cones_inds[k+1]
-        b_z_k = b_z[inds]
-        b_z_k = get_d_s(cone, Δsₐ_scaled[inds], Δzₐ_scaled[inds], b_z_k, γ, λ[inds], μ, σ)
-        KKT_b_z = @view program.KKT_b[z_inds]
-        KKT_b_z[inds] = b_z_k
+        b_z_k = @view b_z[inds]
+        Δsₐ_scaled_inds = @view Δsₐ_scaled[inds]
+        Δzₐ_scaled_inds = @view Δzₐ_scaled[inds]
+        d_s = get_d_s(cone, Δsₐ_scaled_inds, Δzₐ_scaled_inds, b_z_k, γ, λ[inds], μ, σ)
+        KKT_b_z[inds] = d_s
     end
-    # Δx = qp_solve(solver, G_scaled, inv_W_b_z, full_qr_solve)
-    # Δs, Δs_scaled, Δz_scaled, Δx = get_combined_direction(program, KKT_b[z_inds], Δx)
-    Δs, Δs_scaled, Δz_scaled, Δx = get_iterative_combined_search_direction(solver, G_scaled, KKT_b[z_inds], kkt_1_1, inv_W_b_z)
+    Δs, Δs_scaled, Δz_scaled, Δx = kktsolver.combined_search_direction(solver, G_scaled, b_z, kkt_1_1, inv_W_b_z)
     update_cones(program, Δs, Δx[z_inds])
 
     @debug "Combined direction ok?:" check_combined_direction(program, λ, Δsₐ_scaled, Δzₐ_scaled, Δs_scaled, Δz_scaled, μ, σ)

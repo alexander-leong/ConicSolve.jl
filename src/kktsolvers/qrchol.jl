@@ -21,7 +21,7 @@ function gram(G, sparse_G=false)
 end
 
 """
-    full_qr_solve(kktsystem, b_x, b_y, b_z, sparse_G=false)
+    full_qr_solve(kktsystem, kkt_1_1, b_x, b_y, b_z)
 
 Calculates the vectors ``x`` and ``y`` (if linear equality constraints present)
 by solving the KKT system of linear equations where the KKT matrix is given by kktsystem,
@@ -54,14 +54,9 @@ x = \\begin{bmatrix}
 
 The vectors ``x`` and ``y`` (nothing, if not present).
 """
-function full_qr_solve(kktsystem, b_x, b_y, b_z, sparse_G=false)
+function full_qr_solve(kktsystem, kkt_1_1, b_x, b_y, b_z)
     G = kktsystem.G
-    P = kktsystem.P
-    if kktsystem.P === nothing
-        kktsystem.Q_A = (gram(G, sparse_G)) + 1e-3*I
-    else
-        kktsystem.Q_A = (P + gram(G, sparse_G)) + 1e-3*I
-    end
+    kktsystem.Q_A = kkt_1_1 + 1e-3*I
     Q_A = kktsystem.Q_A
     b_1 = b_x + G' * b_z
     b_2 = b_1

@@ -5,9 +5,7 @@ This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.
 file in the root directory
 =#
 
-include("./kktsolvers/conjgrad.jl")
-include("./kktsolvers/minres.jl")
-include("./kktsolvers/qrchol.jl")
+include("./kktsolvers/itersolver.jl")
 
 using SparseArrays
 
@@ -56,31 +54,27 @@ mutable struct KKTSolver
 end
 
 function setup_default_kkt_solver(kktsolve,
-                                  iterative=false,
                                   preconditioner="none",
                                   preconditioners=nothing)
     if isnothing(preconditioners)
         preconditioners = get_preconditioners()
     end
+    kktsolvers = get_kkt_solvers()
+    kktsolve_var = kktsolvers[kktsolve]
+    iterative = kktsolve_var["iterative"]
     if iterative
         solver = KKTSolver(get_iterative_affine_search_direction,
                            get_iterative_combined_search_direction,
-                           kktsolve,
+                           kktsolve_var,
                            preconditioner,
                            preconditioners)
         return solver
     end
-    # FIXME
-    # solver = KKTSolver(get_affine_search_direction,
-    #                    get_combined_search_direction,
-    #                    kktsolve,
-    #                    preconditioner,
-    #                    preconditioners)
-    solver = KKTSolver(get_iterative_affine_search_direction,
-        get_iterative_combined_search_direction,
-        kktsolve,
-        preconditioner,
-        preconditioners)
+    solver = KKTSolver(get_affine_search_direction,
+                       get_combined_search_direction,
+                       kktsolve_var,
+                       preconditioner,
+                       preconditioners)
     return solver
 end
 
@@ -97,6 +91,7 @@ end
 
 function qp_solve(solver,
                   G_scaled::AbstractArray{<:Number},
+                  kkt_1_1,
                   inv_W_b_z::AbstractArray{<:Number},
                   solve=full_qr_solve)
     # page 498, 618 Boyd and Vandenberghe
@@ -105,7 +100,7 @@ function qp_solve(solver,
     b_x = @view program.KKT_b[program.inds_c]
     program.kktsystem.G = G_scaled
     b_y = get_solve_args(program)
-    x_vec = solve(program.kktsystem, b_x, b_y, inv_W_b_z)
+    x_vec = solve(program.kktsystem, kkt_1_1, b_x, b_y, inv_W_b_z)
     return x_vec
 end
 
