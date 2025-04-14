@@ -901,14 +901,14 @@ function get_central_path(solver::Solver,
     # Combined direction, i.e. solve linear equations
     # see page 29 of coneprog.pdf for solving a KKT system with SOCP and SDP constraints
     KKT_b = -(1 - η) * r
-    b_z = @view KKT_b[z_inds]
+    b_z = copy(KKT_b[z_inds])
     # see eq. 19a, 19b, 22a of coneprog.pdf
-    KKT_b_z = @view program.KKT_b[z_inds]
+    KKT_b_z = program.KKT_b[z_inds]
     for (k, cone) in enumerate(program.cones)
         inds = program.cones_inds[k]+1:program.cones_inds[k+1]
-        b_z_k = @view b_z[inds]
-        Δsₐ_scaled_inds = @view Δsₐ_scaled[inds]
-        Δzₐ_scaled_inds = @view Δzₐ_scaled[inds]
+        b_z_k = b_z[inds]
+        Δsₐ_scaled_inds = Δsₐ_scaled[inds]
+        Δzₐ_scaled_inds = Δzₐ_scaled[inds]
         d_s = get_d_s(cone, Δsₐ_scaled_inds, Δzₐ_scaled_inds, b_z_k, γ, λ[inds], μ, σ)
         KKT_b_z[inds] = d_s
     end

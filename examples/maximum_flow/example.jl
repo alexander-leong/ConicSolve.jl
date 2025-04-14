@@ -65,7 +65,7 @@ function run_example()
       0 0 0 0 0 0 0 0
     ]
     cone_qp = get_qp(G, min_G)
-    kktsolve = "qrchol"
+    kktsolve = "minres"
     solver = Solver(cone_qp, kktsolve)
     solver.max_iterations = 20
     status = optimize!(solver)
