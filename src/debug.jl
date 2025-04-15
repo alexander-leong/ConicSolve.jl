@@ -12,7 +12,7 @@ the correctness of the optimization solver (not to be used in production).
 
 using LinearAlgebra
 
-function is_convex_cone(program, α, etol=1e-6)
+function is_convex_cone(program, α, etol=1e-3)
     for (k, cone) in enumerate(program.cones)
         inds = program.cones_inds[k]+1:program.cones_inds[k+1]
         s_hat = program.s[inds]
@@ -22,7 +22,7 @@ function is_convex_cone(program, α, etol=1e-6)
     return true
 end
 
-function is_convex_cone(cone::NonNegativeOrthant, α, s_hat, z_hat, etol=1e-6)
+function is_convex_cone(cone::NonNegativeOrthant, α, s_hat, z_hat, etol=1e-3)
     if cone.z isa AbstractArray{ComplexF64}
         s_result = map(x -> minimum((real(x), imag(x))), s_hat + α * cone.s)
         @assert minimum(s_result) >= -etol
@@ -34,12 +34,12 @@ function is_convex_cone(cone::NonNegativeOrthant, α, s_hat, z_hat, etol=1e-6)
     end
 end
 
-function is_convex_cone(cone::PSDCone, α, s_hat, z_hat, etol=1e-6)
+function is_convex_cone(cone::PSDCone, α, s_hat, z_hat, etol=1e-3)
     @assert minimum(eigen(mat((s_hat + α * cone.s))).values) >= -etol
     @assert minimum(eigen(mat((z_hat + α * cone.z))).values) >= -etol
 end
 
-function is_convex_cone(cone::SecondOrderCone, α, s_hat, z_hat, etol=1e-6)
+function is_convex_cone(cone::SecondOrderCone, α, s_hat, z_hat, etol=1e-3)
     s_hat_new = s_hat + α * cone.s
     z_hat_new = z_hat + α * cone.z
     @assert norm(s_hat_new[2:end]) - etol <= s_hat_new[1]

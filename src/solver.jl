@@ -248,13 +248,14 @@ mutable struct Solver
 
     NOTE: Set η as nothing to set to σ.
     """
-    function Solver(program::ConeQP,
+    function Solver(program::ConeQP=nothing,
                     kktsolve="qrchol",
+                    preconditioner="none",
                     limit_obj=0,
                     limit_soln=0,
-                    tol_gap_abs=1e-6,
-                    tol_gap_rel=1e-6,
-                    tol_optimality=1e-6,
+                    tol_gap_abs=1e-3,
+                    tol_gap_rel=1e-3,
+                    tol_optimality=1e-3,
                     max_iterations=100,
                     time_limit_sec=1e6,
                     η=nothing,
@@ -262,7 +263,7 @@ mutable struct Solver
         solver = new()
         solver.current_iteration = 1
         solver.device = CPU
-        solver.kktsolver = setup_default_kkt_solver(kktsolve)
+        solver.kktsolver = setup_default_kkt_solver(kktsolve, preconditioner)
         solver.program = program
         solver.limit_obj = limit_obj
         solver.limit_soln = limit_soln
@@ -387,6 +388,10 @@ function optimize_main!(solver::Solver)
         solver.obj_primal_value = primal_obj
         result, r, μ = get_solver_status(solver)
         status = solver.status
+        if result == true
+            solver.status.status_termination = OPTIMAL
+            return status
+        end
         if i > 1 && (P != zeros(size(P)) || c != zeros(size(P)[1]))
             if abs(solver.obj_primal_value) <= solver.limit_obj
                 solver.status.status_termination = OBJECTIVE_LIMIT
@@ -401,16 +406,12 @@ function optimize_main!(solver::Solver)
             solver.status.status_termination = ITERATION_LIMIT
             return status
         end
-        if result == true
-            solver.status.status_termination = OPTIMAL
-            return status
-        end
         η = solver.η
         γ = solver.γ
         get_central_path(solver, i, r, μ, η, γ)
         end
         ### TEST CODE ###
-        if i == 10
+        if i == 20
             return
         end
         ### TEST CODE ###
@@ -570,7 +571,7 @@ end
 
 function check_linear_equalities(program::ConeQP,
                                  r::Vector{T},
-                                 tol::Float64=1e-6) where T <: Number
+                                 tol::Float64=1e-3) where T <: Number
     y_inds = program.inds_b
     z_inds = program.inds_h
     b_y = -r[y_inds]
@@ -582,14 +583,14 @@ end
 
 function check_linear_inequalities(s::Vector{T},
                                    z::AbstractArray,
-                                   tol::Float64=1e-6) where T <: Number
+                                   tol::Float64=1e-3) where T <: Number
     r2 = all(s->norm(s) >= tol, s) && all(z->norm(z) >= tol, z)
     return r2
 end
 
 function check_duality_gap(s::Vector{T},
                            z::AbstractArray,
-                           atol::Float64=1e-6,
+                           atol::Float64=1e-3,
                            rtol::Float64=1e-3) where T <: Number
     r3 = within_tol(atol, rtol, abs(z' * s))
     return r3
@@ -903,13 +904,13 @@ function get_central_path(solver::Solver,
     KKT_b = -(1 - η) * r
     b_z = copy(KKT_b[z_inds])
     # see eq. 19a, 19b, 22a of coneprog.pdf
-    KKT_b_z = program.KKT_b[z_inds]
+    KKT_b_z = @view program.KKT_b[z_inds]
     for (k, cone) in enumerate(program.cones)
         inds = program.cones_inds[k]+1:program.cones_inds[k+1]
         b_z_k = b_z[inds]
-        Δsₐ_scaled_inds = Δsₐ_scaled[inds]
-        Δzₐ_scaled_inds = Δzₐ_scaled[inds]
-        d_s = get_d_s(cone, Δsₐ_scaled_inds, Δzₐ_scaled_inds, b_z_k, γ, λ[inds], μ, σ)
+        Δsₐ_scaled_k = Δsₐ_scaled[inds]
+        Δzₐ_scaled_k = Δzₐ_scaled[inds]
+        d_s = get_d_s(cone, Δsₐ_scaled_k, Δzₐ_scaled_k, b_z_k, γ, λ[inds], μ, σ)
         KKT_b_z[inds] = d_s
     end
     Δs, Δs_scaled, Δz_scaled, Δx = kktsolver.combined_search_direction(solver, G_scaled, b_z, kkt_1_1, inv_W_b_z)

@@ -7,6 +7,18 @@ file in the root directory
 
 using LinearAlgebra
 
+function get_kkt_matrix(kktsystem)
+    P = kktsystem.P
+    A = kktsystem.A
+    G = kktsystem.G
+    K = [P A' G']
+    K_2_2 = zeros(size(A)[1], size(A)[1])
+    K_3_3 = zeros(size(G)[1], size(G)[1])
+    K = vcat(K, [A K_2_2 zeros(size(A)[1], size(G)[1])])
+    K = vcat(K, [G zeros(size(G)[1], size(A)[1]) K_3_3])
+    return K
+end
+
 function get_identity_preconditioner_matrices(A)
     return I, I
 end
@@ -25,8 +37,9 @@ function get_jacobi_preconditioner_matrices(A, check=true)
     return inv_M_1, inv_M_2
 end
 
-function get_spai_preconditioner_matrices(A, M_0=nothing, m=100)
+function get_spai_preconditioner_matrices(kktsystem, M_0=nothing, m=100)
     """https://tbetcke.github.io/hpc_lecture_notes/it_solvers4.html"""
+    A = get_kkt_matrix(kktsystem)
     if isnothing(M_0)
         M_0 = 2 / opnorm(A*A', 1) * A
     end
@@ -44,7 +57,8 @@ function get_spai_preconditioner_matrices(A, M_0=nothing, m=100)
     return inv_M_1, inv_M_2
 end
 
-function get_ssor_preconditioner_matrices(A)
+function get_ssor_preconditioner_matrices(kktsystem)
+    A = get_kkt_matrix(kktsystem)
     L = LowerTriangular(A)
     D = Diagonal(A)
     U = UpperTriangular(A)
