@@ -1,7 +1,7 @@
 name = "ConicSolve"
 uuid = "1a4286b3-6f5e-4030-bb00-6db9fd4bd7fc"
 authors = ["alexander "]
-version = "0.1.0"
+version = "0.1.1"
 
 [deps]
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
