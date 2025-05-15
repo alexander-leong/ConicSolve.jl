@@ -14,5 +14,6 @@ include("./cones/soc.jl")
 include("./models/sdp.jl")
 include("./models/sos.jl")
 include("solver.jl")
+include("MOI_wrapper/MOI_wrapper.jl")
 
 end

@@ -148,7 +148,8 @@ function set_b_from_data(sdp::SDP, data)
     b_idx = vec(get_img_transposed_idx_in_A(sdp.idx, data))
     n = size(data)[1] + size(data)[2]
     b_idx = lower_triangular_from_2d_idx(n, b_idx)
-    b[b_idx] = vec(data)
+    b[b_idx] = vec(data')
+    b = b[b_idx]
     return b_idx, b
 end
 
@@ -175,12 +176,9 @@ function set_off_diag_constraint(sdp::SDP, data, mask)
     # set A, b as values of non noise image
     b_idx, b = set_b_from_data(sdp, data)
     noise_idx = get_triangular_idx(sdp.idx, mask)
-    noise_idx = map(x -> CartesianIndex(x, x), noise_idx)
-    A[noise_idx] .= 0
+    noise_idx = map(x -> CartesianIndex(x), noise_idx)
+    A[noise_idx, :] .= 0
     A = A[b_idx, :]
-    
-    # let initialization deal with diagonal dominance
-    b = svec(mat(b))
 
     # omit zero rows in A and respective entries in b
     A, inds = dropzero_rows(A)

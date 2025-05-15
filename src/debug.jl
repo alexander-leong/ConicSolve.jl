@@ -46,6 +46,47 @@ function is_convex_cone(cone::SecondOrderCone, α, s_hat, z_hat, etol=1e-3)
     @assert norm(z_hat_new[2:end]) - etol <= z_hat_new[1]
 end
 
+function check_linear_equalities(program,
+                                 r::Vector{T},
+                                 tol::Float64=1e-3) where T <: Number
+    y_inds = program.inds_b
+    z_inds = program.inds_h
+    b_y = -r[y_inds]
+    b_z = -r[z_inds]
+    b_y_is_optimal = all(x->abs(x) <= tol, b_y)
+    b_z_is_optimal = all(x->abs(x) <= tol, b_z)
+    return b_y_is_optimal && b_z_is_optimal
+end
+
+function check_linear_inequalities(s::Vector{T},
+                                   z::AbstractArray,
+                                   tol::Float64=1e-3) where T <: Number
+    r2 = all(s->norm(s) >= tol, s) && all(z->norm(z) >= tol, z)
+    return r2
+end
+
+function check_constraints(program,
+                           r,
+                           s,
+                           z,
+                           tol,
+                           check_r1=true,
+                           check_r2=true,
+                           check_r3=true)
+    x_inds = program.inds_c
+    b_x = r[x_inds]
+    b_x_is_optimal = all(x->abs(x) <= tol, b_x)
+    x = program.KKT_x
+    
+    r1 = check_r1 ? b_x_is_optimal : true
+    check_r2 = check_r2 && isdefined(program, :A)
+    r2 = check_r2 ? check_linear_equalities(program, r) : true
+    r3 = check_r3 ? check_linear_inequalities(s, z) : true
+
+    result = r1 && r2 && r3
+    return result
+end
+
 function check_affine_direction(program, λ, Δsₐ_scaled, Δzₐ_scaled, etol=1e-3)
     for (k, cone) in enumerate(program.cones)
         inds = program.cones_inds[k]+1:program.cones_inds[k+1]

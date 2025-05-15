@@ -257,8 +257,13 @@ Get vectorized lower triangular indices given a 2d mask.
 """
 function get_triangular_idx(A_idx, mask)
     b_idx = vec(get_img_transposed_idx_in_A(A_idx, mask))
-    b_idx = filter(x -> mask[x[1] - size(mask)[1], x[2]] == 1, b_idx)
-    b_idx = lower_triangular_from_2d_idx(size(mask)[1] + size(mask)[2], b_idx)
+    n = size(mask)[1] + size(mask)[2]
+    offset_X = n - size(mask)[2]
+    # filter X with mask
+    # X = [[., X],
+    #     [X^T, .]]
+    b_idx = filter(x -> mask'[x[1] - offset_X, x[2]] == 1, b_idx)
+    b_idx = lower_triangular_from_2d_idx(n, b_idx)
     return b_idx
 end
 

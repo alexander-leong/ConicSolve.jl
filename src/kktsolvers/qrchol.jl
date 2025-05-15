@@ -61,7 +61,11 @@ function full_qr_solve(kktsystem, kkt_1_1, b_x, b_y, b_z)
     b_1 = b_x + G' * b_z
     b_2 = b_1
     x_len = size(kktsystem.P)[1]
-    y_len = size(kktsystem.A)[1]
+    if isdefined(kktsystem, :A)
+        y_len = size(kktsystem.A)[1]
+    else
+        y_len = 0
+    end
     z_len = size(kktsystem.G)[1]
     n = x_len + y_len + z_len
     x_vec = zeros(Number, n)
