@@ -53,10 +53,11 @@ function get_inv_weighted_mat(cone::PSDCone,
     ncols = length(size(V)) == 1 ? 1 : size(V)[2]
     W = zeros(eltype(inv_R), (size(V)[1], ncols))
     for j in 1:ncols
+        V_j = @view V[:, j]
         if transpose == true
-            W[:, j] = svec(inv_R' * mat(V[:, j]) * inv_R)
+            W[:, j] = svec(inv_R' * mat(V_j) * inv_R)
         else
-            W[:, j] = svec(inv_R * mat(V[:, j]) * inv_R')
+            W[:, j] = svec(inv_R * mat(V_j) * inv_R')
         end
     end
     return W
@@ -69,10 +70,11 @@ function get_weighted_mat(cone::PSDCone,
     ncols = length(size(V)) == 1 ? 1 : size(V)[2]
     W = zeros(eltype(R), (size(V)[1], ncols))
     for j in 1:ncols
+        V_j = @view V[:, j]
         if transpose == true
-            W[:, j] = svec(R * mat(V[:, j]) * R')
+            W[:, j] = svec(R * mat(V_j) * R')
         else
-            W[:, j] = svec(R' * mat(V[:, j]) * R)
+            W[:, j] = svec(R' * mat(V_j) * R)
         end
     end
     return W

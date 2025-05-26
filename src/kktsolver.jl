@@ -16,10 +16,11 @@ mutable struct KKTSystem
     Q
     Q_A
     R
-    inv_R
+    # inv_R
+    kkt_1_1
     function KKTSystem(A::AbstractArray{Float64},
                        G::AbstractArray{<:Number},
-                       P::AbstractArray{Float64})
+                       P::Union{AbstractArray{Float64}, Nothing})
         kktmat = new()
         kktmat.A = A
         kktmat.G = G
@@ -32,12 +33,12 @@ mutable struct KKTSystem
             Q, kktmat.R = qr(A')
             kktmat.Q = collect(Q)
         end
-        kktmat.inv_R = inv(kktmat.R)
+        # kktmat.inv_R = inv(kktmat.R)
         return kktmat
     end
 
     function KKTSystem(G::AbstractArray{<:Number},
-                       P::AbstractArray{Float64})
+                       P::Union{AbstractArray{Float64}, Nothing})
         kktmat = new()
         kktmat.G = G
         kktmat.P = P
@@ -91,7 +92,6 @@ end
 
 function qp_solve(solver,
                   G_scaled::AbstractArray{<:Number},
-                  kkt_1_1,
                   inv_W_b_z::AbstractArray{<:Number},
                   solve=full_qr_solve)
     # page 498, 618 Boyd and Vandenberghe
@@ -100,6 +100,7 @@ function qp_solve(solver,
     b_x = @view program.KKT_b[program.inds_c]
     program.kktsystem.G = G_scaled
     b_y = get_solve_args(program)
+    kkt_1_1 = program.kktsystem.kkt_1_1
     x_vec = solve(program.kktsystem, kkt_1_1, b_x, b_y, inv_W_b_z)
     return x_vec
 end

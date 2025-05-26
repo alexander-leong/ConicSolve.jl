@@ -51,7 +51,7 @@ mutable struct ConeQP{T<:Number, U<:Number, V<:Number}
     G::AbstractArray{V}
     KKT_b::AbstractVector{V}
     KKT_x::AbstractVector{V}
-    P::AbstractArray{Float64}
+    P::Union{AbstractArray{Float64}, Nothing}
     b::AbstractVector{Float64}
     c::AbstractVector{U}
     h::AbstractVector{Float64}
@@ -108,7 +108,7 @@ mutable struct ConeQP{T<:Number, U<:Number, V<:Number}
     """
     function ConeQP{T, U, V}(A::Union{AbstractArray{Float64}, Nothing},
                     G::AbstractArray{T},
-                    P::AbstractArray{Float64},
+                    P::Union{AbstractArray{Float64}, Nothing},
                     b::Union{AbstractArray{Float64}, Nothing},
                     c::AbstractArray{U},
                     h::AbstractArray{Float64},
@@ -125,13 +125,15 @@ mutable struct ConeQP{T<:Number, U<:Number, V<:Number}
                 cone_qp.A = A
             end
         end
-        if size(G)[2] != size(P)[2]
-            throw(DimensionMismatch("Number of columns of G does not equal P"))
+        if P != undef && !isnothing(P)
+            if size(G)[2] != size(P)[2]
+                throw(DimensionMismatch("Number of columns of G does not equal P"))
+            end
+            if size(P)[1] != size(P)[2]
+                throw(DimensionMismatch("P is not square"))
+            end
         end
-        if size(P)[1] != size(P)[2]
-            throw(DimensionMismatch("P is not square"))
-        end
-        cone_qp.inds_c = 1:size(P)[1]
+        cone_qp.inds_c = 1:size(G)[2]
         if b != undef && !isnothing(b)
             if size(A)[1] != length(b)
                 throw(DimensionMismatch("Number of rows of A does not equal b"))
@@ -149,7 +151,7 @@ mutable struct ConeQP{T<:Number, U<:Number, V<:Number}
             throw(DimensionMismatch("Number of rows of G does not equal h"))
         end
         cone_qp.cones = cones
-        cone_qp.is_feasibility_problem = (P != zeros(size(P)) || c != zeros(size(P)[1]))
+        cone_qp.is_feasibility_problem = (P != undef && !isnothing(P) && P != zeros(size(P)) || c != zeros(size(G)[2]))
         
         return cone_qp
     end
@@ -281,7 +283,7 @@ mutable struct Solver
                     tol_optimality=1e-3,
                     max_iterations=100,
                     time_limit_sec=1e6,
-                    η=nothing,
+                    η=0.0,
                     γ::Float64=1.0,
                     cb_before_iteration=nothing,
                     cb_after_iteration=nothing)
@@ -378,9 +380,10 @@ function run_solver(solver::Solver, is_init=false, kwargs...)
     try
         print_header()
         @info "Optimize called"
+        BLAS.set_num_threads(solver.num_threads)
         initialize!(solver, is_init)
         if is_init == false
-            check_preconditions(solver)
+            # check_preconditions(solver)
         end
         result = optimize_main!(solver, kwargs...)
         log_msg = ("Solver finished" * "\n" *
@@ -403,7 +406,7 @@ end
 Get the current objective value to the conic quadratic program
 `` x^TPx + c^Tx ``
 """
-function get_objective(P::AbstractArray{Float64},
+function get_objective(P::Union{AbstractArray{Float64}, Nothing},
                        c::AbstractArray{U},
                        x::AbstractArray{T}) where {T<:Number, U<:Number}
     if eltype(x) <: Complex
@@ -415,7 +418,11 @@ function get_objective(P::AbstractArray{Float64},
         obj = real(tr(mat(c) * mat(x)))
         return obj
     end
-    obj = x' * P * x + c' * x
+    obj = 0.0
+    if !isnothing(P)
+        obj = x' * P * x
+    end
+    obj = obj + c' * x
     return obj
 end
 
@@ -458,7 +465,7 @@ function optimize_main!(solver::Solver, kwargs...)
         program = solver.program
         P = program.P
         c = program.c
-        x = @view program.KKT_x[1:size(P)[1]]
+        x = @view program.KKT_x[1:length(c)]
         primal_obj = get_objective(P, c, x)
         solver.obj_primal_value = primal_obj
         result, r, μ = get_solver_status(solver)
@@ -568,7 +575,7 @@ function alpha_d(program::ConeQP)
 end
 
 function get_num_constraints(program::ConeQP)
-    num_constraints = size(program.P)[1]
+    num_constraints = 0
     if isdefined(program, :A)
         num_constraints += size(program.A)[1]
     end
@@ -591,10 +598,15 @@ function initialize_solver!(solver::Solver)
     inv_W = Matrix{Float64}(I, size(G)[1], size(G)[1])
     G_scaled = -inv_W' * program.G
     b_z = @view program.KKT_b[program.inds_h]
-    inv_W_b_z = -inv_W * b_z
-    kkt_1_1 = program.P + (G_scaled' * G_scaled)
-    x_hat = qp_solve(solver, G_scaled, kkt_1_1, inv_W_b_z, full_qr_solve)
-    x_inds = 1:size(P)[1]
+    inv_W_b_z = -b_z
+    kkt_1_1 = G_scaled' * G_scaled
+    if !isnothing(program.P)
+        kkt_1_1 = program.P + kkt_1_1
+    end
+    kktsystem = program.kktsystem
+    kktsystem.kkt_1_1 = kkt_1_1
+    x_hat = qp_solve(solver, G_scaled, inv_W_b_z, full_qr_solve)
+    x_inds = 1:size(G)[2]
     program.z = -(program.h - G*x_hat[x_inds])
     z_hat = program.z
     update_cones(program)
@@ -713,7 +725,8 @@ function get_inv_weighted_mat(program::ConeQP,
     inv_W_V = zeros(T, (size(V)[1], ncols))
     for (k, cone) in enumerate(program.cones)
         inds = program.cones_inds[k]+1:program.cones_inds[k+1]
-        inv_W_V[inds, :] = get_inv_weighted_mat(cone, V[inds, :], transpose)
+        Vi = @view V[inds, :]
+        inv_W_V[inds, :] = get_inv_weighted_mat(cone, Vi, transpose)
     end
     return inv_W_V
 end
@@ -725,7 +738,8 @@ function get_weighted_mat(program::ConeQP,
     W_V = zeros(T, (size(V)[1], ncols))
     for (k, cone) in enumerate(program.cones)
         inds = program.cones_inds[k]+1:program.cones_inds[k+1]
-        W_V[inds, :] = get_weighted_mat(cone, V[inds, :])
+        Vi = @view V[inds, :]
+        W_V[inds, :] = get_weighted_mat(cone, Vi)
         if update_var == true
             cone.λ = W_V[inds, 1]
         end
@@ -741,13 +755,17 @@ function evaluate_residual(qp::ConeQP,
     r = zeros(T, length(Δx))
     x = Δx[x_inds]
     z = Δx[z_inds]
+    P_x = zeros(Float64, length(x))
+    if !isnothing(qp.P)
+        P_x = qp.P * x
+    end
     if isdefined(qp, :A)
         y = Δx[y_inds]
-        r_x = qp.P * x + qp.A' * y + qp.G' * z + qp.c
+        r_x = P_x + qp.A' * y + qp.G' * z + qp.c
         r_y = qp.A * x - qp.b
         r[y_inds] = r_y
     else
-        r_x = qp.P * x + qp.G' * z + qp.c
+        r_x = P_x + qp.G' * z + qp.c
     end
     r_z = qp.s + qp.G * x - qp.h
     r[x_inds] = r_x
@@ -816,7 +834,7 @@ function get_affine_search_direction(solver::Solver,
                                      inv_W_b_z)
     program = solver.program
     kktsolver_fn = solver.kktsolver.kktsolve["fn"]
-    Δx = qp_solve(solver, G_scaled, kkt_1_1, inv_W_b_z, kktsolver_fn)
+    Δx = qp_solve(solver, G_scaled, inv_W_b_z, kktsolver_fn)
     Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = get_affine_direction(program, Δx)
     return Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ
 end
@@ -828,7 +846,7 @@ function get_combined_search_direction(solver::Solver,
                                        inv_W_b_z)
     program = solver.program
     kktsolver_fn = solver.kktsolver.kktsolve["fn"]
-    Δx = qp_solve(solver, G_scaled, kkt_1_1, inv_W_b_z, kktsolver_fn)
+    Δx = qp_solve(solver, G_scaled, inv_W_b_z, kktsolver_fn)
     Δs, Δs_scaled, Δz_scaled, Δx = get_combined_direction(program, b_z, Δx)
     return Δs, Δs_scaled, Δz_scaled, Δx
 end
@@ -931,6 +949,7 @@ function get_central_path(solver::Solver,
     z_inds = program.inds_h
 
     # get scaling factors
+    # get_scaling_factors_elapsed_time = @elapsed begin
     λ = zeros(length(program.s))
     if current_itr == 1
         for (k, cone) in enumerate(program.cones)
@@ -946,21 +965,31 @@ function get_central_path(solver::Solver,
             λ[inds] = cone.λ
         end
     end
+    # end
+    # println(get_scaling_factors_elapsed_time)
     # solve linear equations to get affine direction
     # see page 14 of coneprog.pdf for setting z part of b
+    # get_affine_direction_elapsed_time = @elapsed begin
     s = program.s
     program.KKT_b = -r
     program.KKT_b[z_inds] = -r[z_inds] + s
     G_scaled = get_inv_weighted_mat(program, program.G)
     b_z = @view program.KKT_b[program.inds_h]
     inv_W_b_z = get_inv_weighted_mat(program, b_z)
-    kkt_1_1 = program.P + (G_scaled' * G_scaled)
-    Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = kktsolver.affine_search_direction(solver, G_scaled, kkt_1_1, inv_W_b_z)
+    kktsystem = program.kktsystem
+    mul!(kktsystem.kkt_1_1, G_scaled', G_scaled)
+    if !isnothing(program.P)
+        kktsystem.kkt_1_1 = program.P + kktsystem.kkt_1_1
+    end
+    Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = kktsolver.affine_search_direction(solver, G_scaled, kktsystem.kkt_1_1, inv_W_b_z)
     update_cones(program, Δsₐ, Δxₐ[z_inds])
+    # end
+    # println(get_affine_direction_elapsed_time)
 
     @debug "Affine direction ok?: " check_affine_direction(program, λ, Δsₐ_scaled, Δzₐ_scaled)
 
     # Compute step size and centering parameter
+    # get_step_size_elapsed_time = @elapsed begin
     α = get_step_size(program, Δsₐ_scaled, Δzₐ_scaled)
     @debug "Solution after step ok?: " is_convex_cone(program, α)
     ρ = 1 - α + α^2 * dot(Δsₐ_scaled', Δzₐ_scaled) / dot(λ', λ)
@@ -968,29 +997,38 @@ function get_central_path(solver::Solver,
     if η === nothing
         η = σ
     end
+    # end
+    # println(get_step_size_elapsed_time)
     @debug "Step size: " α
     @debug "η: " η
     @debug "Centering parameter: " σ
     
     # Combined direction, i.e. solve linear equations
     # see page 29 of coneprog.pdf for solving a KKT system with SOCP and SDP constraints
+    # get_combined_direction_elapsed_time = @elapsed begin
     KKT_b = -(1 - η) * r
-    b_z = copy(KKT_b[z_inds])
+    program.KKT_b = KKT_b
+    b_z = KKT_b[z_inds]
     # see eq. 19a, 19b, 22a of coneprog.pdf
     KKT_b_z = @view program.KKT_b[z_inds]
     for (k, cone) in enumerate(program.cones)
         inds = program.cones_inds[k]+1:program.cones_inds[k+1]
-        b_z_k = b_z[inds]
-        Δsₐ_scaled_k = Δsₐ_scaled[inds]
-        Δzₐ_scaled_k = Δzₐ_scaled[inds]
+        b_z_k = @view b_z[inds]
+        Δsₐ_scaled_k = @view Δsₐ_scaled[inds]
+        Δzₐ_scaled_k = @view Δzₐ_scaled[inds]
         d_s = get_d_s(cone, Δsₐ_scaled_k, Δzₐ_scaled_k, b_z_k, γ, λ[inds], μ, σ)
         KKT_b_z[inds] = d_s
     end
-    Δs, Δs_scaled, Δz_scaled, Δx = kktsolver.combined_search_direction(solver, G_scaled, b_z, kkt_1_1, inv_W_b_z)
-    update_cones(program, Δs, Δx[z_inds])
+    inv_W_b_z = get_inv_weighted_mat(program, KKT_b_z)
+    Δs, Δs_scaled, Δz_scaled, Δx = kktsolver.combined_search_direction(solver, G_scaled, b_z, kktsystem.kkt_1_1, inv_W_b_z)
+    Δx_z = @view Δx[z_inds]
+    update_cones(program, Δs, Δx_z)
+    # end
+    # println(get_combined_direction_elapsed_time)
 
     @debug "Combined direction ok?:" check_combined_direction(program, λ, Δsₐ_scaled, Δzₐ_scaled, Δs_scaled, Δz_scaled, μ, σ)
     
+    # update_elapsed_time = @elapsed begin
     # update step size
     program.α = get_step_size(program, Δs_scaled, Δz_scaled, 0.99)
     @debug "Solution after step ok?: " is_convex_cone(program, program.α)
@@ -1002,9 +1040,13 @@ function get_central_path(solver::Solver,
     # update scaling matrices and vars
     for (k, cone) in enumerate(program.cones)
         inds = program.cones_inds[k]+1:program.cones_inds[k+1]
-        update_scaling_vars(cone, Δs_scaled[inds], Δz_scaled[inds], program.α)
+        Δs_scaled_k = @view Δs_scaled[inds]
+        Δz_scaled_k = @view Δz_scaled[inds]
+        update_scaling_vars(cone, Δs_scaled_k, Δz_scaled_k, program.α)
     end
-    @debug "Updated scaling matrices and scaling vars"
+    # end
+    # println(update_elapsed_time)
+    # @debug "Updated scaling matrices and scaling vars"
 end
 
 export ConeQP
