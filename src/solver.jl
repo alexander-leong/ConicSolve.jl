@@ -11,8 +11,10 @@ include("./arrayutils.jl")
 include("./debug.jl")
 include("./kktsolver.jl")
 
+using CUDA
 using LinearAlgebra
 using Logging
+using SparseArrays
 
 @enum ResultStatus begin
     NO_SOLUTION
@@ -70,7 +72,7 @@ mutable struct ConeQP{T<:Number, U<:Number, V<:Number}
     is_feasibility_problem::Bool
     kktsystem::KKTSystem
 
-    @doc"""
+    """
         ConeQP(A, G, P, b, c, h, cones)
     
     Constructs a new Conic Quadratic Program of the form:
@@ -156,7 +158,7 @@ mutable struct ConeQP{T<:Number, U<:Number, V<:Number}
         return cone_qp
     end
     
-    @doc"""
+    """
         ConeQP(G, P, c, h, cones)
     
     Constructs a new Conic Quadratic Program of the form:
@@ -253,7 +255,7 @@ mutable struct Solver
     η
     γ::Float64 # Mehrotra correction parameter
 
-    @doc"""
+    """
         Solver(program, kktsolve, η, γ)
     
     Constructs a new QP solver object.
@@ -464,7 +466,7 @@ function optimize_main!(solver::Solver, kwargs...)
         itr_time_elapsed = @elapsed begin
         program = solver.program
         P = program.P
-        c = program.c
+        c = @view program.c[:]
         x = @view program.KKT_x[1:length(c)]
         primal_obj = get_objective(P, c, x)
         solver.obj_primal_value = primal_obj
@@ -585,7 +587,7 @@ end
 
 function initialize_solver!(solver::Solver)
     program = solver.program
-    G = program.G
+    G = @view program.G[:, :]
     P = program.P
     program.s = zeros((size(G)[1]))
     program.z = zeros((size(G)[1]))
@@ -595,8 +597,8 @@ function initialize_solver!(solver::Solver)
     end
 
     @info "Solving for primal dual starting points"
-    inv_W = Matrix{Float64}(I, size(G)[1], size(G)[1])
-    G_scaled = -inv_W' * program.G
+    inv_W = I(size(G)[1])
+    G_scaled = I(size(G)[1])
     b_z = @view program.KKT_b[program.inds_h]
     inv_W_b_z = -b_z
     kkt_1_1 = G_scaled' * G_scaled
@@ -753,14 +755,14 @@ function evaluate_residual(qp::ConeQP,
                            y_inds::UnitRange{Int64},
                            z_inds::UnitRange{Int64}) where T <: Number
     r = zeros(T, length(Δx))
-    x = Δx[x_inds]
-    z = Δx[z_inds]
+    x = @view Δx[x_inds]
+    z = @view Δx[z_inds]
     P_x = zeros(Float64, length(x))
     if !isnothing(qp.P)
         P_x = qp.P * x
     end
     if isdefined(qp, :A)
-        y = Δx[y_inds]
+        y = @view Δx[y_inds]
         r_x = P_x + qp.A' * y + qp.G' * z + qp.c
         r_y = qp.A * x - qp.b
         r[y_inds] = r_y
@@ -796,14 +798,14 @@ function get_affine_direction(program::ConeQP,
     x_inds = program.inds_c
     z_inds = program.inds_h
     b = @view program.KKT_b[z_inds]
-    s = program.s
+    s = @view program.s[:]
     Δx = @view x[x_inds]
     b_z = program.G * Δx - b
     b_z_scaled = get_inv_weighted_mat(program, b_z)
     Δz = get_inv_weighted_mat(program, b_z_scaled, true)
     Δs = -s - b_z
     x[z_inds] = Δz[:, 1]
-    Δz_scaled = b_z_scaled
+    Δz_scaled = @view b_z_scaled[:]
     Δs_scaled = get_inv_weighted_mat(program, Δs)
     @debug "Calculated affine direction"
     return Δs, Δs_scaled, Δz_scaled, x
@@ -812,7 +814,7 @@ end
 function get_combined_direction(program::ConeQP,
                                 d_z::AbstractArray,
                                 x::AbstractArray)
-    G = program.G
+    G = @view program.G[:, :]
     x_inds = program.inds_c
     z_inds = program.inds_h
     b_z = @view program.KKT_b[z_inds]
@@ -883,7 +885,7 @@ function get_solver_status(solver::Solver)
     tol = solver.tol_optimality
     program = solver.program
     x = program.KKT_x
-    s = program.s
+    s = @view program.s[:]
 
     # range objects for indexing
     x_inds = program.inds_c
@@ -917,9 +919,14 @@ function get_solver_status(solver::Solver)
     status.current_iteration = i
     push!(status.duality_gap, norm(μ))
     push!(status.primal_obj, pri_obj)
-    push!(status.residual_x, norm(r_x))
-    push!(status.residual_y, norm(r_y))
-    push!(status.residual_z, norm(r_z))
+    # push!(status.residual_x, norm(r_x))
+    # push!(status.residual_y, norm(r_y))
+    # push!(status.residual_z, norm(r_z))
+    # status.duality_gap = [norm(μ)]
+    # status.primal_obj = [pri_obj]
+    status.residual_x = [norm(r_x)]
+    status.residual_y = [norm(r_y)]
+    status.residual_z = [norm(r_z)]
     update_dual_status(solver)
     update_primal_status(solver)
 
@@ -954,10 +961,7 @@ function get_central_path(solver::Solver,
     if current_itr == 1
         for (k, cone) in enumerate(program.cones)
             inds = program.cones_inds[k]+1:program.cones_inds[k+1]
-            Wₖ, inv_Wₖ, λₖ = get_scaling_vars(cone)
-            cone.W = Wₖ
-            cone.inv_W = inv_Wₖ
-            λ[inds] = λₖ
+            cone.W, cone.inv_W, λ[inds] = get_scaling_vars(cone)
         end
     else
         for (k, cone) in enumerate(program.cones)
@@ -970,14 +974,19 @@ function get_central_path(solver::Solver,
     # solve linear equations to get affine direction
     # see page 14 of coneprog.pdf for setting z part of b
     # get_affine_direction_elapsed_time = @elapsed begin
-    s = program.s
+    s = @view program.s[:]
     program.KKT_b = -r
     program.KKT_b[z_inds] = -r[z_inds] + s
     G_scaled = get_inv_weighted_mat(program, program.G)
+    # G_scaled = sparse(G_scaled) # DON'T DO THIS, SLOWER!!
     b_z = @view program.KKT_b[program.inds_h]
     inv_W_b_z = get_inv_weighted_mat(program, b_z)
     kktsystem = program.kktsystem
-    mul!(kktsystem.kkt_1_1, G_scaled', G_scaled)
+    cu_G_scaled = CuArray{Float32}(G_scaled)
+    cu_G_scaled_QR_R = qr(cu_G_scaled).R
+    gram_G_scaled = cu_G_scaled_QR_R' * cu_G_scaled_QR_R
+    kktsystem.kkt_1_1 = zeros(Float32, size(gram_G_scaled))
+    copyto!(kktsystem.kkt_1_1, gram_G_scaled)
     if !isnothing(program.P)
         kktsystem.kkt_1_1 = program.P + kktsystem.kkt_1_1
     end

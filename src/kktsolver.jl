@@ -22,8 +22,8 @@ mutable struct KKTSystem
                        G::AbstractArray{<:Number},
                        P::Union{AbstractArray{Float64}, Nothing})
         kktmat = new()
-        kktmat.A = A
-        kktmat.G = G
+        kktmat.A = @view A[:, :]
+        kktmat.G = @view G[:, :]
         kktmat.P = P
         if length(size(A)) == 2 && A == isdiag(A)
             kktmat.Q, kktmat.R = Matrix(I, size(A)[1], size(A)[2]), A
@@ -100,8 +100,7 @@ function qp_solve(solver,
     b_x = @view program.KKT_b[program.inds_c]
     program.kktsystem.G = G_scaled
     b_y = get_solve_args(program)
-    kkt_1_1 = program.kktsystem.kkt_1_1
-    x_vec = solve(program.kktsystem, kkt_1_1, b_x, b_y, inv_W_b_z)
+    x_vec = solve(program.kktsystem, program.kktsystem.kkt_1_1, b_x, b_y, inv_W_b_z)
     return x_vec
 end
 

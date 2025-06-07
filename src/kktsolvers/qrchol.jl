@@ -57,49 +57,68 @@ x = \\begin{bmatrix}
 The vectors ``x`` and ``y`` (nothing, if not present).
 """
 function full_qr_solve(kktsystem, kkt_1_1, b_x, b_y, b_z, check=false)
-    G = kktsystem.G
-    kktsystem.Q_A = kkt_1_1 + 1e-3*I
-    Q_A = kktsystem.Q_A
+    G = @view kktsystem.G[:, :]
+    @views kkt_1_1 += 1e-3*I
+    Q_A = @view kkt_1_1[:, :]
     b_1 = b_x + G' * b_z
-    b_2 = b_1
-    x_len = size(kktsystem.G)[2]
+    b_2 = @view b_1[:]
+    x_len = length(b_x)
     if isdefined(kktsystem, :A)
-        y_len = size(kktsystem.A)[1]
+    	A = @view kktsystem.A[:, :]
+        y_len = size(A)[1]
     else
         y_len = 0
     end
-    z_len = size(kktsystem.G)[1]
+    z_len = length(b_z)
     n = x_len + y_len + z_len
     # x_vec = zeros(Float64, n)
+    function cu_cholesky(A, uplo)
+        if uplo == 'L'
+            result = tril(CUSOLVER.Xpotrf!(uplo, A)[1])
+        else
+            result = triu(CUSOLVER.Xpotrf!(uplo, A)[1])
+        end
+        return result
+    end
     if !isdefined(kktsystem, :Q) && !isdefined(kktsystem, :R)
         # no linear equality constraints
         x = Q_A \ b_1
         # x_vec[1:x_len] = x
         # return x_vec
     else
-        Q = kktsystem.Q
-        R = kktsystem.R
+        Q = @view kktsystem.Q[:, :]
+        R = @view kktsystem.R[:, :]
         Q_1 = @view Q[:, 1:size(R)[1]]
         Q_2 = @view Q[:, size(R)[1]+1:size(Q)[2]]
-        Q, Q_A, Q_1, Q_2, R, b_y, b_1, b_2 = qr_chol_cpu_to_gpu(Q, Q_A, Q_1, Q_2, R, b_y, b_1, b_2)
-        Q_1_x = R' \ b_y
+        Q_A = CuArray{Float32}(Q_A)
+        Q_2 = CuArray{Float32}(Q_2)
         solve_elapsed_time = @elapsed begin
-        U = cholesky(Q_A, check=check).U * Q_2
-        Q_2_A = cholesky(U' * U, check=check).L
-        end
-        println(solve_elapsed_time)
+        Q_A = cholesky(Q_A, check=check).U * Q_2
+        R = CuArray{Float32}(R)
+        b_y = CuArray{Float32}(b_y)
+        Q_1 = CuArray{Float32}(Q_1)
+        Q_2_A = cholesky(Q_A' * Q_A, check=check).L
+        Q_A = @view kkt_1_1[:, :]
+        Q_A = CuArray{Float32}(Q_A)
+	    Q_1_x = R' \ b_y
         S_Q1_x = Q_A * (Q_1 * Q_1_x)
         A₁₁x₁ = Q_1' * S_Q1_x
         A₂₁x₁ = Q_2' * S_Q1_x
+        b_2 = CuArray{Float32}(b_2)
         U_Q2_x = Q_2_A \ (Q_2' * b_2 - A₂₁x₁)
         Q_2_x = Q_2_A' \ U_Q2_x
         A₁₂x₂ = Q_1' * (Q_A' * (Q_2 * Q_2_x))
+        b_1 = CuArray{Float32}(b_1)
         y = R \ ((Q_1' * b_1) - A₁₁x₁ - A₁₂x₂)
+        Q = CuArray{Float32}(Q)
         x = Q * [Q_1_x; Q_2_x]
+        end
+        println(solve_elapsed_time)
         x_cpu = zeros(Float64, x_len)
         y_cpu = zeros(Float64, y_len)
         z_cpu = zeros(Float64, z_len)
-        qr_chol_gpu_to_cpu(x_cpu, x, y_cpu, y)
+        copyto!(x_cpu, x)
+        copyto!(y_cpu, y)
         return [x_cpu; y_cpu; z_cpu]
     end
 end
