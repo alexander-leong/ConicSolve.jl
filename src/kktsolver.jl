@@ -101,7 +101,8 @@ function qp_solve(solver,
     program.kktsystem.G = G_scaled
     b_y = get_solve_args(program)
     kkt_1_1 = program.kktsystem.kkt_1_1
-    x_vec = solve(program.kktsystem, kkt_1_1, b_x, b_y, inv_W_b_z)
+    device = solver.device
+    x_vec = solve(device, program.kktsystem, kkt_1_1, b_x, b_y, inv_W_b_z)
     return x_vec
 end
 
@@ -127,6 +128,7 @@ function qp_solve_iterative(solver,
     kktsystem.G = G_scaled
     # FIXME
     inv_M_1, inv_M_2 = preconditioner_fn(kktsystem)
-    x_vec = solve(kktsystem, kkt_1_1, b, x_0, inv_M_1, inv_M_2)
+    device = solver.device
+    x_vec = solve(device, kktsystem, kkt_1_1, b, x_0, inv_M_1, inv_M_2)
     return x_vec
 end

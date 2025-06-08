@@ -41,6 +41,8 @@ end
     GPU
 end
 
+export Device, CPU, GPU
+
 """
     ConeQP
 
@@ -337,7 +339,7 @@ function update_primal_status(solver::Solver)
 end
 
 function within_tol(abs_tol, rel_tol, value)
-    if abs_tol / value < rel_tol
+    if value / abs_tol < rel_tol
         return true
     end
     return false
@@ -517,6 +519,7 @@ function log_solver_parameters(solver::Solver)
         lpad("Max iterations: ", pad, " ") solver.max_iterations;
         lpad("Num constraints: ", pad, " ") get_num_constraints(solver.program);
         lpad("Num threads: ", pad, " ") solver.num_threads;
+        lpad("Preferred device: ", pad, " ") solver.device;
         lpad("System Solver KKT method: ", pad, " ") solver.kktsolver.kktsolve["label"];
         lpad("Time limit (seconds): ", pad, " ") solver.time_limit_sec;
         lpad("Tolerance gap absolute: ", pad, " ") solver.tol_gap_abs;
@@ -706,14 +709,12 @@ function is_optimal(solver::Solver,
     if i == 0
         return false
     end
-    if !problem.is_feasibility_problem
-        if abs(solver.obj_primal_value) <= solver.limit_obj
-            status.status_termination = OBJECTIVE_LIMIT
-        end
-        current_obj = solver.obj_primal_value
-        if abs(current_obj - solver.obj_primal_value) < tol
-            status.status_termination = OPTIMAL
-        end
+    if abs(solver.obj_primal_value) <= solver.limit_obj
+        status.status_termination = OBJECTIVE_LIMIT
+    end
+    current_obj = solver.obj_primal_value
+    if abs(current_obj - solver.obj_primal_value) < tol
+        status.status_termination = OPTIMAL
     end
     return true
 end
