@@ -49,10 +49,10 @@ end
 function get_inv_weighted_mat(cone::PSDCone,
                               V::AbstractArray{T},
                               transpose=false) where T <: Number
-    inv_R = cone.inv_W
+    inv_R = @view cone.inv_W[:, :]
     ncols = length(size(V)) == 1 ? 1 : size(V)[2]
     W = zeros(eltype(inv_R), (size(V)[1], ncols))
-    for j in 1:ncols
+    Threads.@threads for j in 1:ncols
         V_j = @view V[:, j]
         if transpose == true
             W[:, j] = svec(inv_R' * mat(V_j) * inv_R)
@@ -66,10 +66,10 @@ end
 function get_weighted_mat(cone::PSDCone,
                           V::AbstractArray{T},
                           transpose=false) where T <: Number
-    R = cone.W
+    R = @view cone.W[:, :]
     ncols = length(size(V)) == 1 ? 1 : size(V)[2]
     W = zeros(eltype(R), (size(V)[1], ncols))
-    for j in 1:ncols
+    Threads.@threads for j in 1:ncols
         V_j = @view V[:, j]
         if transpose == true
             W[:, j] = svec(R * mat(V_j) * R')
