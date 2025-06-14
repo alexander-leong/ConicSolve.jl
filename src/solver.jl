@@ -423,15 +423,6 @@ Get the current objective value to the conic quadratic program
 function get_objective(P::Union{AbstractArray{Float64}, Nothing},
                        c::AbstractArray{U},
                        x::AbstractArray{T}) where {T<:Number, U<:Number}
-    if eltype(x) <: Complex
-        # if abs(imag(obj)) <= 1e-3
-        #     return real(obj)
-        # else
-        #     throw(DomainError("Objective must be scalar real valued."))
-        # end
-        obj = real(tr(mat(c) * mat(x)))
-        return obj
-    end
     obj = 0.0
     if !isnothing(P)
         obj = x' * P * x
