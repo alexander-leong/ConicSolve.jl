@@ -81,7 +81,7 @@ set_objective(sos, c)
 ```julia
 cone_qp = get_qp(sos)
 solver = Solver(cone_qp)
-optimize!(solver)
+`run_solver`(solver)
 ```
 
 (vi) Get solution from solver, i.e. values of Q
@@ -97,10 +97,9 @@ The solution is given by the value of the coefficients for each of the Q values 
 ```math
 \begin{align*}
 a_0 &= Q_{55} \\
-a_1 &= Q_{54} \\
-a_2 &= Q_{44} + Q_{53} \\
-a_3 &= Q_{43} + Q_{52} \\
-a_4 &= Q_{33} + Q_{42} + Q_{51}
+a_1 &= Q_{54} + Q_{45} \\
+a_2 &= Q_{44} + Q_{53} + Q_{35} \\
+a_3 &= Q_{43} + Q_{52} + Q_{34} + Q_{25}
 \end{align*}
 ```
 for a 4th order polynomial with the following quadratic form
@@ -115,6 +114,11 @@ Q_{51} & Q_{52} & Q_{53} & Q_{54} & Q_{55}
 \end{bmatrix}
 \begin{bmatrix} t^4 \\ t^3 \\ t^2 \\ t^1 \\ 1 \end{bmatrix}
 ```
+which expands to:
+```math
+p(t) = a_0 + a_1*t + a_2*t^2 + a_3*t^3 + a_4*t^4
+```
+In using a higher degree polynomial we're more likely to find that it belongs to SOS.
 
 #### Further Comments
 

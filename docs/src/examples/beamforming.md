@@ -42,7 +42,7 @@ This is a simple toy problem setup. No data has been imported in this example.
 
 (ii) We pass the ConeQP object to the solver `solver = Solver(cone_qp)`.
 
-(iii) Then when we're ready we call optimize! passing the solver object `optimize!(solver)`.
+(iii) Then when we're ready we call `run_solver` passing the solver object `run_solver`(solver)`.
 
 (iv) We can access the solution by accessing the primal solution from the solver `x = get_solution(solver)`.
 

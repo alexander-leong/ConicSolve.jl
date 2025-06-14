@@ -5,6 +5,13 @@ else
     to_gpu_or_not_to_gpu(x) = x
 end
 
+function get_array(device, obj)
+    if device == GPU
+        return CuArray{eltype(obj)}(obj)
+    end
+    return obj
+end
+
 function qr_chol_cpu_to_gpu(Q, Q_A, Q_1, Q_2, R, b_y, b_1, b_2)
     Q = CuArray(Q)
     Q_A = CuArray(Q_A)

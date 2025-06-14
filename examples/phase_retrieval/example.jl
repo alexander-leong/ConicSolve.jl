@@ -5,7 +5,14 @@ This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.
 file in the root directory
 =#
 
+""" WARNING: this example is computationally intensive, to get decent
+results it is strongly recommended this problem be run on a machine with sufficient compute and memory capacity.
+i.e. Memory requirements: >= 64GB RAM/VRAM
+"""
+
 using ConicSolve
+# Uncomment to plot result
+# using CairoMakie
 using Distributions
 using FFTW
 using JLD
@@ -41,123 +48,102 @@ function warm_start_qp(data, n)
     idx = map(x -> CartesianIndex(x, x), 1:n)
     idx = lower_triangular_from_2d_idx(n, idx)
     idx = map(x -> CartesianIndex(x[1], x[2]), enumerate(idx))
+
     A = zeros((n, Int(n * (n + 1) / 2)))
     A[idx] .= 1
     b = ones(n)
     G = -1.0I(size(A)[2])
     P = nothing
     c = data["c"]
-    println(length(c))
-    println(size(A))
     h = zeros(size(G)[1])
+
     cones::Vector{Cone} = []
     push!(cones, PSDCone(n))
     cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
+
     s = data["s"]
     z = data["z"]
+
+    cone_qp.KKT_x = data["KKT_x"]
     cone_qp.s = s
     cone_qp.z = z
-    cone_qp.KKT_x = data["KKT_x"]
     return cone_qp
 end
 
 function get_qp(A, pinv_A, b, n)
     A, G, P, b, c, h = get_problem_parameters(A, pinv_A, b, n)
-    save("/home/alexander/Documents/alexander_leong/ConicSolve.jl/phase_retrieval_params.jld", "A", A, "G", G, "P", P, "b", b, "c", c, "h", h)
     cones::Vector{Cone} = []
     push!(cones, PSDCone(n))
     cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
     return cone_qp
 end
 
-# function run_example()
+function get_filter_matrix(m, n)
+    F = fft(I(Int(n)), 1)
+    d = Normal(0, 0.01) # Normal random variable with mean, variance
+    A = vcat([Matrix{ComplexF32}(Circulant(F * rand(d, n))) for i = 1:m]...)
+    return A
+end
+
+function reconstruct_signal(u, b, pinv_A)
+    # get the approximate phase vector from the solution
+    U = mat(u)
+    X = U[1:m*n, 1:m*n] + (U[m*n+1:end, 1:m*n] * im)
+    s, v = eigen(X)
+    u = v[:, end]
+
+    # check SDP tightness to ensure quality of reconstruction
+    println(s) # s should have only one large eigenvalue for X to be close to rank 1 to be tight
+
+    # reconstruct the signal from the phase vector
+    x = pinv_A * diagm(b) * u
+    println(b - abs.(A * x))
+    return x
+end
+
+function plot_result(input_signal, rec_signal, n)
+    f = Figure()
+    x_range = 1:1:n
+    ax = Axis(f[1, 1], title="Input Signal vs Reconstructed Signal over time")
+    lines!(ax, x_range, input_signal[1:n])
+    lines!(ax, x_range, rec_signal[1:n])
+    display(f)
+end
+
 Random.seed!(1)
 
 # set parameters
-m = 4 # number of illumination filters
-n = 33
-x = collect(0:0.2:6.4)
+m = 2 # number of illumination filters, >= 4 should be reasonable
+n = 9 # must be large, say at least 60 which is intractable for most machines
+x = collect(0:0.8:6.4) # smaller step size and longer length is better
 
 # get the 1-D DFT matrix with n roots of unity
-F = fft(I(Int(n)), 1)
-# F_Re = real(F)
-# F_Im = imag(F)
-d = Normal(0, 0.01) # Normal random variable with mean, variance
-# A_Re = vcat([Matrix{Float64}(Circulant(F_Re * rand(d, n))) for i = 1:m]...)
-# A_Im = vcat([Matrix{Float64}(Circulant(F_Im * rand(d, n))) for i = 1:m]...)
-# A = A_Re + A_Im
-A = vcat([Matrix{ComplexF32}(Circulant(F * rand(d, n))) for i = 1:m]...)
+A = get_filter_matrix(m, n)
 
-# generate original signal
 # create noiseless raw input signal
 ω = 1
-ϕ = pi/3
-x_sig = sin.(ω .* x)[1:end] # .+ (0.5 * sin.(2*ω .* x .+ ϕ)[1:end])
+ϕ = 0
+x_sig = sin.(ω .* x .+ ϕ)[1:end]
+
 # calculate measurements by passing original signal through each filter
 b = abs.(A * x_sig)
-# println(size(A))
-# println(size(b))
 
-# A = [A_Re -A_Im; A_Im A_Re]
-pinv_A = inv(A'*A) * A'
-# pinv_A = pinv(A)
+pinv_A = inv(A'*A) * A' # Moore Penrose Psedoinverse
 
-# free memory
-F = 0
-F_Re = 0
-F_Im = 0
-A_Re = 0
-A_Im = 0
-
-# b = rand(Float64, n)
-# b_0 = sin.(ω .* x)[1:end]
-# b_1 = 0.5 * sin.(2*ω .* x .+ ϕ)[1:end]
-# b = b_0 + b_1
-# b = repeat(b, m*2)
-# b = repeat(b, 2)
-
-# data = load("/home/alexander/Documents/alexander_leong/ConicSolve.jl/phase_retrieval_4_30_simple.jld")
-# b = ones(m*n*2)
-# c = data["c"]
 cone_qp = get_qp(A, pinv_A, b, length(b)*2)
-# cone_qp = warm_start_qp(data, m*n*2)
-# cone_qp.b = b
-# cone_qp.c = c
 solver = Solver(cone_qp)
-solver.max_iterations = 5
+solver.device = GPU
+solver.max_iterations = 10
 solver.num_threads = 1
 status = run_solver(solver)
 
-U = get_solution(solver)
-# U = mat(U)
-# U = U + (I / sqrt(2))
-# save result
-# println(length(solver.program.KKT_x))
+# evaluate reconstruction accuracy
+u = get_solution(solver)
+rec_signal = reconstruct_signal(u, b, pinv_A)
+# plot_result(x_sig, rec_signal, length(x_sig))
 
-A = data["A"]
-b = data["b"]
-save("/home/alexander/Documents/alexander_leong/ConicSolve.jl/phase_retrieval_4_30_simple.jld", "solution", U, "KKT_x", solver.program.KKT_x, "s", solver.program.s, "z", solver.program.z, "A", A, "b", b, "c", solver.program.c)
-# get the approximate phase vector from the solution
-# X = U[1:m*n, 1:m*n] + (U[m*n+1:end, 1:m*n] * im)
-# s, v = eigen(X)
-# u = v[:, end]
-# println(s)
-# reconstruct the signal from the phase vector
-# x = pinv_A * diagm(b) * u
-# diag_u = diag(mat(U))
-# println(isapprox(diag_u, ones(length(diag_u))))
-# println((norm((A * x) - (diagm(b) * u), 2))^2)
-# println(b - abs.(A * x))
+save("./phase_retrieval_problem.jld", "solution", U, "KKT_x", solver.program.KKT_x, "s", solver.program.s, "z", solver.program.z, "A", A, "b", b, "c", solver.program.c)
 
-# return status
-# end
-
-# run_example()
-# using CairoMakie
-# f = Figure()
-# x_range = 1:1:n
-# ax = Axis(f[1, 1], title="Input Signal vs Reconstructed Signal over time")
-# lines!(ax, x_range, b[1:n])
-# signal = abs.(x)
-# lines!(ax, x_range, signal[1:n])
-# display(f)
+# Uncomment to do warm start from saved result
+# data = load("./phase_retrieval_problem.jld")
+# cone_qp = warm_start_qp(data, m*n*2)

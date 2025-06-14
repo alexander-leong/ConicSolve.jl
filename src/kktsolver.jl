@@ -6,9 +6,30 @@ file in the root directory
 =#
 
 include("./kktsolvers/itersolver.jl")
+include("./kktsolvers/qrchol.jl")
 
 using SparseArrays
 
+"""
+    KKTSystem
+
+The KKT System solved by the KKT solver.
+In the absence of linear equalities, the system solved is:
+```math
+K = \\begin{bmatrix}
+    P  & G^T   \\\\
+    G  & -W^TW \\\\
+\\end{bmatrix}
+```
+In the presence of linear equalities, the system solved is:
+```math
+K = \\begin{bmatrix}
+    P  & A^T   & G^T   \\\\
+    A  & 0     & 0     \\\\
+    G  & 0     & -W^TW \\\\
+\\end{bmatrix}
+```
+"""
 mutable struct KKTSystem
     A
     G
@@ -16,7 +37,6 @@ mutable struct KKTSystem
     Q
     Q_A
     R
-    # inv_R
     kkt_1_1
     function KKTSystem(A::AbstractArray{Float64},
                        G::AbstractArray{<:Number},
@@ -33,7 +53,6 @@ mutable struct KKTSystem
             Q, kktmat.R = qr(A')
             kktmat.Q = collect(Q)
         end
-        # kktmat.inv_R = inv(kktmat.R)
         return kktmat
     end
 
@@ -52,6 +71,21 @@ mutable struct KKTSolver
     kktsolve
     preconditioner::String
     preconditioners::Dict
+end
+
+function get_kkt_solvers()
+    kkt_solvers = Dict(
+        "conjgrad" => Dict("label" => "Conjugate Gradient",
+                           "fn" => conj_grad_kkt_solve,
+                           "iterative" => true),
+        "minres" => Dict("label" => "MINRES",
+                         "fn" => minres_kkt_solve,
+                         "iterative" => true),
+        "qrchol" => Dict("label" => "QR and Cholesky",
+                         "fn" => qr_chol_solve,
+                         "iterative" => false)
+    )
+    return kkt_solvers
 end
 
 function setup_default_kkt_solver(kktsolve,
@@ -93,7 +127,7 @@ end
 function qp_solve(solver,
                   G_scaled::AbstractArray{<:Number},
                   inv_W_b_z::AbstractArray{<:Number},
-                  solve=full_qr_solve)
+                  solve=qr_chol_solve)
     # page 498, 618 Boyd and Vandenberghe
     # page 29, coneprog.pdf
     program = solver.program
@@ -101,7 +135,8 @@ function qp_solve(solver,
     program.kktsystem.G = G_scaled
     b_y = get_solve_args(program)
     device = solver.device
-    x_vec = solve(device, program.kktsystem, program.kktsystem.kkt_1_1, b_x, b_y, inv_W_b_z)
+    kktsystem = program.kktsystem
+    x_vec = solve(device, kktsystem, b_x, b_y, inv_W_b_z)
     return x_vec
 end
 
@@ -131,3 +166,6 @@ function qp_solve_iterative(solver,
     x_vec = solve(device, kktsystem, kkt_1_1, b, x_0, inv_M_1, inv_M_2)
     return x_vec
 end
+
+export KKTSystem
+export get_kkt_solvers

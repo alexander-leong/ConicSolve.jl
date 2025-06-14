@@ -14,8 +14,7 @@ makedocs(;
         "Readme" => "index.md",
         "Design" => "design.md",
         "Tutorial" => "tutorial.md",
-        "Examples" => ["examples/aircraft_minimum_climb_time.md",
-                       "examples/maximum_flow.md",
+        "Examples" => ["examples/maximum_flow.md",
                        "examples/phase_cut.md",
                        "examples/beamforming.md",
                        "examples/portfolio.md",
@@ -37,4 +36,8 @@ makedocs(;
         prettyurls = false,
         repolink="http://localhost:8000",
     )
+)
+
+deploydocs(
+    repo = "github.com/alexander-leong/ConicSolve.jl.git",
 )

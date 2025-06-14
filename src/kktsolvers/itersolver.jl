@@ -8,7 +8,6 @@ file in the root directory
 include("conjgrad.jl")
 include("minres.jl")
 include("preconditioners.jl")
-include("qrchol.jl")
 
 using LinearAlgebra
 using Logging
@@ -21,21 +20,6 @@ function get_preconditioners()
         "ssor" => get_ssor_preconditioner_matrices
     )
     return preconditioners
-end
-
-function get_kkt_solvers()
-    kkt_solvers = Dict(
-        "conjgrad" => Dict("label" => "Conjugate Gradient",
-                           "fn" => conj_grad_kkt_solve,
-                           "iterative" => true),
-        "minres" => Dict("label" => "MINRES",
-                         "fn" => minres_kkt_solve,
-                         "iterative" => true),
-        "qrchol" => Dict("label" => "QR and Cholesky",
-                         "fn" => full_qr_solve,
-                         "iterative" => false)
-    )
-    return kkt_solvers
 end
 
 function kktmatmul(kktsystem, kkt_1_1, x)
@@ -62,7 +46,6 @@ function get_residual(kktsystem, kkt_1_1, b, x)
     return r
 end
 
-export get_kkt_solvers
 export get_preconditioners
 export get_residual
 export kktmatmul

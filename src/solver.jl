@@ -230,6 +230,25 @@ end
 
 Represents an Interior Point Method solver
 for solving Conic Quadratic Programs.
+All parameters are optional except `program`.
+
+### Parameters:
+* `cb_after_iteration`: Callback function of the form: function cb(solver::Solver) end
+* `cb_before_iteration`: Callback function of the form: function cb(solver::Solver) end
+* `device`: CPU or GPU
+* `program`: The Cone QP to solve
+* `kktsolver`: The object to represent the KKT solver used to solve the KKT system. The `kktsolve` argument will construct the appropriate KKTSolver object. \
+Possible values for kktsolve are `conjgrad`, `minres` and `qrchol`. `qrchol` is the default.
+* `limit_obj`: The minimum/maximum objective value the solver will terminate
+* `limit_soln`: The 2-norm difference between the current and previous estimates
+* `max_iterations`: The maximum number of iterations before the solver terminates
+* `num_threads`: The number of threads used on the CPU to perform certain BLAS and parallelized operations
+* `time_limit_sec`: The maximum number of seconds elapsed before the solver terminates after the current iteration
+* `tol_gap_abs`: The absolute gap tolerance
+* `tol_gap_rel`: The relative gap tolerance
+* `tol_optimality`: The absolute tolerance for satisfying the optimality conditions
+* `η`: Optimization parameter typically set to zero or σ, default is 0.0. Set η as nothing to set to σ.
+* `γ`: Mehrotra correction parameter set to γ ∈ [0, 1], default is 1.0
 """
 mutable struct Solver
     cb_after_iteration
@@ -261,21 +280,6 @@ mutable struct Solver
         Solver(program, kktsolve, η, γ)
     
     Constructs a new QP solver object.
-    
-    # Parameters:
-    * `program`: The QP to solve
-    * `kktsolve`: The function to solve the KKT system
-    * `limit_obj`: The minimum/maximum objective value the solver will terminate
-    * `limit_soln`: The 2-norm difference between the current and previous estimates
-    * `tol_gap_abs`: The absolute gap tolerance
-    * `tol_gap_rel`: The relative gap tolerance
-    * `tol_optimality`: The absolute tolerance for satisfying the optimality conditions
-    * `max_iterations`: The maximum number of iterations before the solver terminates
-    * `time_limit_sec`: The elapsed time before terminating the solver after the current iteration
-    * `η`: Optimization parameter typically set to zero or σ, default is 0.0
-    * `γ`: Mehrotra correction parameter set to γ ∈ [0, 1], default is 1.0
-
-    NOTE: Set η as nothing to set to σ.
     """
     function Solver(program::Union{ConeQP, Missing}=missing,
                     kktsolve="qrchol",
@@ -317,6 +321,15 @@ mutable struct Solver
     end
 end
 
+"""
+    get_solver_status(solver)
+
+Returns the object of type `SolverStatus` used by the solver.
+"""
+function get_solver_status(solver::Solver)
+    return solver.status
+end
+
 function update_dual_status(solver::Solver)
     status = solver.status
     dual_res = status.residual_x[end]
@@ -352,13 +365,10 @@ end
 
 Get the solution to the optimization problem.
 """
-# FIXME: this is broken
 function get_solution(solver::Solver)
     x_inds = solver.program.inds_c
     return solver.program.KKT_x[x_inds]
 end
-
-export get_solution
 
 function print_graphic()
     fp = open("graphic.txt", "r")
@@ -371,7 +381,7 @@ end
 function print_header()
     print_graphic()
     println("Alexander Leong, 2025")
-    println("Version 0.0.2")
+    println("Version 0.0.3")
     println(repeat("-", 64))
 end
 
@@ -610,7 +620,7 @@ function initialize_solver!(solver::Solver)
     end
     kktsystem = program.kktsystem
     kktsystem.kkt_1_1 = kkt_1_1
-    x_hat = qp_solve(solver, G_scaled, inv_W_b_z, full_qr_solve)
+    x_hat = qp_solve(solver, G_scaled, inv_W_b_z, qr_chol_solve)
     x_inds = 1:size(G)[2]
     program.z = -(program.h - G*x_hat[x_inds])
     z_hat = program.z
@@ -920,14 +930,9 @@ function get_solver_status(solver::Solver)
     status.current_iteration = i
     push!(status.duality_gap, norm(μ))
     push!(status.primal_obj, pri_obj)
-    # push!(status.residual_x, norm(r_x))
-    # push!(status.residual_y, norm(r_y))
-    # push!(status.residual_z, norm(r_z))
-    # status.duality_gap = [norm(μ)]
-    # status.primal_obj = [pri_obj]
-    status.residual_x = [norm(r_x)]
-    status.residual_y = [norm(r_y)]
-    status.residual_z = [norm(r_z)]
+    push!(status.residual_x, norm(r_x))
+    push!(status.residual_y, norm(r_y))
+    push!(status.residual_z, norm(r_z))
     update_dual_status(solver)
     update_primal_status(solver)
 
@@ -944,6 +949,15 @@ function update_iterates(program::ConeQP,
     program.KKT_x = Δx
     program.z = Δx[z_inds]
     @debug "Updated iterates"
+end
+
+function run_on_device(device, fn, args...)
+    if device == GPU
+        for arg in args
+            arg = CuArray{Float32}(arg)
+        end
+    end
+    return fn(args...)
 end
 
 function get_central_path(solver::Solver,
@@ -979,15 +993,17 @@ function get_central_path(solver::Solver,
     program.KKT_b = -r
     program.KKT_b[z_inds] = -r[z_inds] + s
     G_scaled = get_inv_weighted_mat(program, program.G)
-    # G_scaled = sparse(G_scaled) # DON'T DO THIS, SLOWER!!
     b_z = @view program.KKT_b[program.inds_h]
     inv_W_b_z = get_inv_weighted_mat(program, b_z)
+    inv_W_b_z = @view inv_W_b_z[:, 1]
     kktsystem = program.kktsystem
-    cu_G_scaled = CuArray{Float32}(G_scaled)
-    cu_G_scaled_QR_R = qr(cu_G_scaled).R
-    gram_G_scaled = cu_G_scaled_QR_R' * cu_G_scaled_QR_R
-    kktsystem.kkt_1_1 = zeros(Float32, size(gram_G_scaled))
-    copyto!(kktsystem.kkt_1_1, gram_G_scaled)
+    function qr_dev(G_scaled)
+        G_scaled_QR_R = qr(G_scaled).R
+        gram_G_scaled = G_scaled_QR_R' * G_scaled_QR_R
+        kktsystem.kkt_1_1 = zeros(Float32, size(gram_G_scaled))
+        copyto!(kktsystem.kkt_1_1, gram_G_scaled)
+    end
+    run_on_device(GPU, qr_dev, G_scaled)
     if !isnothing(program.P)
         kktsystem.kkt_1_1 = program.P + kktsystem.kkt_1_1
     end
@@ -1030,6 +1046,7 @@ function get_central_path(solver::Solver,
         KKT_b_z[inds] = d_s
     end
     inv_W_b_z = get_inv_weighted_mat(program, KKT_b_z)
+    inv_W_b_z = @view inv_W_b_z[:, 1]
     Δs, Δs_scaled, Δz_scaled, Δx = kktsolver.combined_search_direction(solver, G_scaled, b_z, kktsystem.kkt_1_1, inv_W_b_z)
     Δx_z = @view Δx[z_inds]
     update_cones(program, Δs, Δx_z)
@@ -1061,4 +1078,6 @@ end
 
 export ConeQP
 export Solver
+
+export get_solution
 export run_solver

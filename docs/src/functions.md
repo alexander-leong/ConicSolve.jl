@@ -1,14 +1,6 @@
-## Methods
-
 ```@meta
 CurrentModule = ConicSolve
 end
-```
-
-```@autodocs
-Modules = [ConicSolve]
-Order = [:type, :function]
-Pages = ["arrayutils.jl", "imageutils.jl"]
 ```
 
 ## Cones
@@ -39,5 +31,12 @@ Pages = ["sos.jl"]
 ```@autodocs
 Modules = [ConicSolve]
 Order = [:type, :function]
-Pages = ["solver.jl"]
+Pages = ["qrchol.jl", "solver.jl"]
+```
+
+## Helper Methods
+```@autodocs
+Modules = [ConicSolve]
+Order = [:type, :function]
+Pages = ["arrayutils.jl", "imageutils.jl"]
 ```

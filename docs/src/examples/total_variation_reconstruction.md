@@ -42,5 +42,8 @@ This is a simple toy problem setup. No data has been imported in this example.
 #### Solve the problem
 
 #### Get the solution
+After reconstructing the signal we should get something like this.
+
+![Reconstructed Signal](../assets/totalvariation.png)
 
 #### Further Comments
