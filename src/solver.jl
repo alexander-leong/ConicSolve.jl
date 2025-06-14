@@ -482,7 +482,7 @@ function optimize_main!(solver::Solver, kwargs...)
         x = @view program.KKT_x[1:length(c)]
         primal_obj = get_objective(P, c, x)
         solver.obj_primal_value = primal_obj
-        result, r, μ = get_solver_status(solver)
+        result, r, μ = update_solver_status(solver)
         status = solver.status
         if result == true
             return status
@@ -889,7 +889,7 @@ function get_iterative_combined_search_direction(solver::Solver,
     return Δs, Δs_scaled, Δz_scaled, Δx
 end
 
-function get_solver_status(solver::Solver)
+function update_solver_status(solver::Solver)
     i = solver.current_iteration
     gap_atol = solver.tol_gap_abs
     gap_rtol = solver.tol_gap_rel
