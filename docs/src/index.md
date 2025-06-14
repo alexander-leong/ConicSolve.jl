@@ -82,7 +82,7 @@ In the examples directory you will find several examples which gives an idea of 
 # How to cite
 ```bibtex
 @misc{Leong2025,
-    title = {{ConicSolve} 0.0.3: A constrained optimization solver for scientific advancement},
+    title = {ConicSolve: A constrained optimization solver for scientific advancement},
     author = {Alexander Leong},
     url = {http://localhost:8000/index.html}
 }
