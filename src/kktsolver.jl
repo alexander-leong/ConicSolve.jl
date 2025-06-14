@@ -5,65 +5,15 @@ This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.
 file in the root directory
 =#
 
-"""This file contains functions for solving the KKT system"""
+include("./kktsolvers/itersolver.jl")
+include("./kktsolvers/qrchol.jl")
 
 using SparseArrays
 
-mutable struct KKTSystem
-    G
-    P
-    Q
-    Q_A
-    R
-    inv_R
-    function KKTSystem(A::AbstractArray{Float64},
-                       G::AbstractArray{Float64},
-                       P::AbstractArray{Float64})
-        kktmat = new()
-        kktmat.G = G
-        kktmat.P = P
-        if length(size(A)) == 2 && A == isdiag(A)
-            kktmat.Q, kktmat.R = Matrix(I, size(A)[1], size(A)[2]), A
-        else
-            # this solver uses the Julia (LAPACK based) QR factorization method
-            # which is based on Householder reflections.
-            Q, kktmat.R = qr(A')
-            kktmat.Q = collect(Q)
-        end
-        kktmat.inv_R = inv(kktmat.R)
-        return kktmat
-    end
-
-    function KKTSystem(G::AbstractArray{Float64},
-                       P::AbstractArray{Float64})
-        kktmat = new()
-        kktmat.G = G
-        kktmat.P = P
-        return kktmat
-    end
-end
-
-function sparse_gram(G)
-    spG = sparse(G)
-    return spG' * spG
-end
-
-function gram(G, sparse_G=false)
-    if sparse_G == true
-        return sparse_gram(G)
-    end
-    R = qr(G).R
-    return R' * R
-end
-
 """
-    full_qr_solve(kktsystem, b_x, b_y, b_z, sparse_G=false)
+    KKTSystem
 
-Calculates the vectors ``x`` and ``y`` (if linear equality constraints present)
-by solving the KKT system of linear equations where the KKT matrix is given by kktsystem,
-``K`` and b\\_x (i.e. ``b_x``), b\\_z (i.e. ``W^{-T}b_z``) are vectors and
-b\\_y (i.e. ``b_y``, if linear equality constraints present).
-Setting sparse_G to true may improve performance if G has a particular sparsity structure.
+The KKT System solved by the KKT solver.
 In the absence of linear equalities, the system solved is:
 ```math
 K = \\begin{bmatrix}
@@ -74,80 +24,148 @@ K = \\begin{bmatrix}
 In the presence of linear equalities, the system solved is:
 ```math
 K = \\begin{bmatrix}
-    P  & G^T   & A^T \\\\
-    G  & -W^TW & 0   \\\\
-    A  & 0     & 0
-\\end{bmatrix}
-\\hspace{1cm}
-x = \\begin{bmatrix}
-\\ Q_1^Tx \\\\
-\\ Q_2^Tx \\\\
-\\ y      \\\\
+    P  & A^T   & G^T   \\\\
+    A  & 0     & 0     \\\\
+    G  & 0     & -W^TW \\\\
 \\end{bmatrix}
 ```
-
-### Output
-
-The vectors ``x`` and ``y`` (nothing, if not present).
 """
-function full_qr_solve(kktsystem, b_x, b_y, b_z, sparse_G=false)
-    # FIXME: refactor
-    G = kktsystem.G
-    P = kktsystem.P
-    if kktsystem.P === nothing
-        kktsystem.Q_A = gram(G, sparse_G)
-    else
-        kktsystem.Q_A = P + gram(G, sparse_G)
+mutable struct KKTSystem
+    A
+    G
+    P
+    Q
+    Q_A
+    R
+    kkt_1_1
+    function KKTSystem(A::AbstractArray{Float64},
+                       G::AbstractArray{<:Number},
+                       P::Union{AbstractArray{Float64}, Nothing})
+        kktmat = new()
+        kktmat.A = @view A[:, :]
+        kktmat.G = @view G[:, :]
+        kktmat.P = P
+        if length(size(A)) == 2 && A == isdiag(A)
+            kktmat.Q, kktmat.R = Matrix(I, size(A)[1], size(A)[2]), A
+        else
+            # this solver uses the Julia (LAPACK based) QR factorization method
+            # which is based on Householder reflections.
+            Q, kktmat.R = qr(A')
+            kktmat.Q = collect(Q)
+        end
+        return kktmat
     end
-    Q_A = kktsystem.Q_A
-    b_1 = b_x + G' * b_z
-    b_2 = b_1
-    if !isdefined(kktsystem, :Q) && !isdefined(kktsystem, :R)
-        # no linear equality constraints
-        x = Q_A \ b_1
-        return x, nothing
-    else
-        Q = kktsystem.Q
-        R = kktsystem.R
-        Q_1_x = kktsystem.inv_R' * b_y
-        Q_1 = @view Q[:, 1:length(Q_1_x)]
-        Q_2 = @view Q[:, length(Q_1_x)+1:size(Q)[2]]
-        Q_1_A = Q_1' * Q_A
-        Q_21_A = Q_2' * Q_A
-        Q_12_A = Q_21_A'
-        U = cholesky(Q_A).U * Q_2
-        Q_2_A = cholesky(U' * U).L
-        A₁₁x₁ = Q_1_A * Q_1 * Q_1_x
-        A₂₁x₁ = Q_21_A * Q_1 * Q_1_x
-        U_Q_2_x = Q_2_A \ (Q_2' * b_2 - A₂₁x₁)
-        Q_2_x = Q_2_A' \ U_Q_2_x
-        A₁₂x₂ = Q_1' * Q_12_A * Q_2_x
-        y = R \ ((Q_1' * b_1) - A₁₁x₁ - A₁₂x₂)
-        x = Q * [Q_1_x; Q_2_x]
-        return x, y
+
+    function KKTSystem(G::AbstractArray{<:Number},
+                       P::Union{AbstractArray{Float64}, Nothing})
+        kktmat = new()
+        kktmat.G = G
+        kktmat.P = P
+        return kktmat
     end
 end
 
-function qp_solve(program,
-                  G_scaled::AbstractArray{Float64},
-                  inv_W_b_z::AbstractArray{Float64},
-                  solve=full_qr_solve)
+mutable struct KKTSolver
+    affine_search_direction
+    combined_search_direction
+    kktsolve
+    preconditioner::String
+    preconditioners::Dict
+end
+
+function get_kkt_solvers()
+    kkt_solvers = Dict(
+        "conjgrad" => Dict("label" => "Conjugate Gradient",
+                           "fn" => conj_grad_kkt_solve,
+                           "iterative" => true),
+        "minres" => Dict("label" => "MINRES",
+                         "fn" => minres_kkt_solve,
+                         "iterative" => true),
+        "qrchol" => Dict("label" => "QR and Cholesky",
+                         "fn" => qr_chol_solve,
+                         "iterative" => false)
+    )
+    return kkt_solvers
+end
+
+function setup_default_kkt_solver(kktsolve,
+                                  preconditioner="none",
+                                  preconditioners=nothing)
+    if isnothing(preconditioners)
+        preconditioners = get_preconditioners()
+    end
+    kktsolvers = get_kkt_solvers()
+    kktsolve_var = kktsolvers[kktsolve]
+    iterative = kktsolve_var["iterative"]
+    if iterative
+        solver = KKTSolver(get_iterative_affine_search_direction,
+                           get_iterative_combined_search_direction,
+                           kktsolve_var,
+                           preconditioner,
+                           preconditioners)
+        return solver
+    end
+    solver = KKTSolver(get_affine_search_direction,
+                       get_combined_search_direction,
+                       kktsolve_var,
+                       preconditioner,
+                       preconditioners)
+    return solver
+end
+
+function get_solve_args(program)
+    if isdefined(program.kktsystem, :Q)
+        if isdefined(program.kktsystem, :R)
+            b_y = @view program.KKT_b[program.inds_b]
+            return b_y
+        end
+    end
+    b_y = nothing
+    return b_y
+end
+
+function qp_solve(solver,
+                  G_scaled::AbstractArray{<:Number},
+                  inv_W_b_z::AbstractArray{<:Number},
+                  solve=qr_chol_solve)
     # page 498, 618 Boyd and Vandenberghe
     # page 29, coneprog.pdf
+    program = solver.program
     b_x = @view program.KKT_b[program.inds_c]
     program.kktsystem.G = G_scaled
-    x_vec = zeros(Float64, length(program.KKT_b))
-    if isdefined(program.kktsystem, :Q) && isdefined(program.kktsystem, :R)
-        b_y = @view program.KKT_b[program.inds_b]
-        x, y = solve(program.kktsystem, b_x, b_y, inv_W_b_z)
-        x_vec[program.inds_b] = y
-    else
-        b_y = nothing
-        x, y = solve(program.kktsystem, b_x, b_y, inv_W_b_z)
-    end
-    x_vec[program.inds_c] = x
+    b_y = get_solve_args(program)
+    device = solver.device
+    kktsystem = program.kktsystem
+    x_vec = solve(device, kktsystem, b_x, b_y, inv_W_b_z)
+    return x_vec
+end
+
+function qp_solve_iterative(solver,
+                            G_scaled::AbstractArray{<:Number},
+                            kkt_1_1,
+                            inv_W_b_z::AbstractArray{<:Number},
+                            solve=minres_kkt_solve)
+    program = solver.program
+    KKT_b_x = @view program.KKT_b[program.inds_c]
+    b_x = KKT_b_x + G_scaled' * inv_W_b_z
+    b = vcat(b_x, program.KKT_b[program.inds_b])
+    b = b[:, 1]
+    kktsystem = program.kktsystem
+    kktsolver = solver.kktsolver
+    preconditioner = kktsolver.preconditioner
+    preconditioner_fn = kktsolver.preconditioners[preconditioner]
+    # b_x = @view b[program.inds_c]
+    # FIXME b_y = get_solve_args(program)
+    # b = vcat(b_x, b_y, inv_W_b_z)
+    # b = vcat(b_x, b_y)
+    x_0 = @view program.KKT_x[1:length(b)]
+    kktsystem.G = G_scaled
+    # FIXME
+    inv_M_1, inv_M_2 = preconditioner_fn(kktsystem)
+    device = solver.device
+    x_vec = solve(device, kktsystem, kkt_1_1, b, x_0, inv_M_1, inv_M_2)
     return x_vec
 end
 
 export KKTSystem
-export full_qr_solve
+export get_kkt_solvers

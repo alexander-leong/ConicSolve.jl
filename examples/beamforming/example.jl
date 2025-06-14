@@ -39,7 +39,7 @@ function get_qp(diagrams, target)
     A, G, P, b, c, h = get_problem_parameters(diagrams, target)
     cones::Vector{Cone} = []
     push!(cones, NonNegativeOrthant(size(G)[1]))
-    cone_qp = ConeQP(A, G, P, b, c, h, cones)
+    cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
     return cone_qp
 end
 

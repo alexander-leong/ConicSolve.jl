@@ -1,16 +1,24 @@
 name = "ConicSolve"
 uuid = "1a4286b3-6f5e-4030-bb00-6db9fd4bd7fc"
 authors = ["alexander "]
-version = "0.1.0"
+version = "0.1.1"
 
 [deps]
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 JLD = "4138dd39-2aa7-5051-a626-17a0bb65d9c8"
+JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
-PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
+MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
+Profile = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+ToeplitzMatrices = "c751599d-da0a-543b-9d20-d0a503d91d24"
 
 [compat]
-PrettyTables = "~2.4.0"
+CairoMakie = "0.13.1"
+JuMP = "1.25.0"
+MathOptInterface = "1.39.0"
+ToeplitzMatrices = "0.8.5"
 julia = "1.10"

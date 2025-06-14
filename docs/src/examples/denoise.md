@@ -40,6 +40,8 @@ julia example.jl
 
 The image denoising example is an example application for solving a rank minimization problem. An image can be represented as a matrix. Here we're just going to take a patch of the image so our optimization problem doesn't get to unwieldy.
 
+![Original Image Patch](../assets/image_rec_orig.png)
+
 #### Data Acquisition
 The image is usually corrupted by some noise. In this example we purposely corrupt this image using salt-pepper noise. To determine which pixels are noisy we'll pass the image through a Laplacian distribution filter. By some threshold will determine which noise pixels to recover. This is what `preprocess_data()` does which will return a matrix img containing the loaded image and noise, the image mask where a value of 1 represents a noise pixel.
 
@@ -50,7 +52,7 @@ We're going to attempt to recover the missing data by denoising the image throug
 
 (ii) We pass the ConeQP object to the solver `solver = Solver(cone_qp)`.
 
-(iii) Then when we're ready we call optimize! passing the solver object `optimize!(solver)`.
+(iii) Then when we're ready we call `run_solver` passing the solver object `run_solver`(solver)`.
 
 (iv) We can access the solution by accessing the primal solution from the solver `x = get_solution(solver)`.
 
@@ -61,11 +63,13 @@ How do we know we solved the problem? Well, inspecting the output we observe a c
 - We obtain a duality gap of zero (or close to zero), this suggests that the solution we obtained is optimal.
 - The x residual ``r_x``, y residual ``r_y``, z residual ``r_z`` are close to zero, this means we satisfied the primal and dual feasibility conditions.
 - The residuals, duality gap and objective values do not change much after successive iterations.
-```@raw html
-<img src="./assets/example.png" alt="drawing" width="400"/>
-```
 
 Once primal feasibility is achieved in this particular example, we ensure that pixel values are nonnegative ``x >= 0`` and the non noise pixels are preserved ``Ax = b``.
+
+After 50 or so iterations, we get a better reconstruction of the image
+![Reconstructed Image Patch](../assets/image_rec_50_iter.png)
+
+Further iterations should result in greater noise reduction.
 
 #### Further Comments
 Many optimization problems are not easy to solve and solvers including this one can run into numerical stability and performance issues. It is worthwhile exploring different parameter settings and reformulating the problem being solved in the event that these become issues.

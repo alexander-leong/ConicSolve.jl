@@ -47,32 +47,34 @@ function get_size(cone::PSDCone)
 end
 
 function get_inv_weighted_mat(cone::PSDCone,
-                              V::AbstractArray,
-                              transpose=false)
-    inv_R = cone.inv_W
+                              V::AbstractArray{T},
+                              transpose=false) where T <: Number
+    inv_R = @view cone.inv_W[:, :]
     ncols = length(size(V)) == 1 ? 1 : size(V)[2]
-    W = zeros((size(V)[1], ncols))
-    for j in 1:ncols
+    W = zeros(eltype(inv_R), (size(V)[1], ncols))
+    Threads.@threads for j in 1:ncols
+        V_j = @view V[:, j]
         if transpose == true
-            W[:, j] = svec(inv_R' * mat(V[:, j]) * inv_R)
+            W[:, j] = svec(inv_R' * mat(V_j) * inv_R)
         else
-            W[:, j] = svec(inv_R * mat(V[:, j]) * inv_R')
+            W[:, j] = svec(inv_R * mat(V_j) * inv_R')
         end
     end
     return W
 end
 
 function get_weighted_mat(cone::PSDCone,
-                          V::AbstractArray,
-                          transpose=false)
-    R = cone.W
+                          V::AbstractArray{T},
+                          transpose=false) where T <: Number
+    R = @view cone.W[:, :]
     ncols = length(size(V)) == 1 ? 1 : size(V)[2]
-    W = zeros((size(V)[1], ncols))
-    for j in 1:ncols
+    W = zeros(eltype(R), (size(V)[1], ncols))
+    Threads.@threads for j in 1:ncols
+        V_j = @view V[:, j]
         if transpose == true
-            W[:, j] = svec(R * mat(V[:, j]) * R')
+            W[:, j] = svec(R * mat(V_j) * R')
         else
-            W[:, j] = svec(R' * mat(V[:, j]) * R)
+            W[:, j] = svec(R' * mat(V_j) * R)
         end
     end
     return W
@@ -95,9 +97,9 @@ function get_scaling_factors(cone::PSDCone)
 end
 
 function update_scaling_vars(cone::PSDCone,
-                             s_scaled::AbstractArray{Float64},
-                             z_scaled::AbstractArray{Float64},
-                             α::Float64)
+                             s_scaled::AbstractArray{T},
+                             z_scaled::AbstractArray{T},
+                             α::Float64) where T <: Number
     # from page 26 of coneprog.pdf
     mat_s_scaled = mat(s_scaled)
     mat_z_scaled = mat(z_scaled)

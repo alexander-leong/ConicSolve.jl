@@ -12,7 +12,7 @@ Consider the optimization problem below, in this case we'll assume a given direc
 ```math
 \begin{aligned}
 \underset{z_1,...,z_N \in \mathbb{C}}{minimize}\qquad &
-\abs{Z_*(\delta) - \sum_{j=1}^Nz_jZ_j(\delta)}
+|Z_*(\delta) - \sum_{j=1}^Nz_jZ_j(\delta)|
 \end{aligned}
 ```
 
@@ -42,7 +42,7 @@ This is a simple toy problem setup. No data has been imported in this example.
 
 (ii) We pass the ConeQP object to the solver `solver = Solver(cone_qp)`.
 
-(iii) Then when we're ready we call optimize! passing the solver object `optimize!(solver)`.
+(iii) Then when we're ready we call `run_solver` passing the solver object `run_solver`(solver)`.
 
 (iv) We can access the solution by accessing the primal solution from the solver `x = get_solution(solver)`.
 

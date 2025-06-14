@@ -32,6 +32,10 @@ Pkg.add("ConicSolve")
 using ConicSolve
 ```
 
+### GPU Acceleration
+
+ConicSolve.jl uses CUDA.jl to accelerate matrix factorization methods for solving the KKT equations. Refer to [CUDA.jl](https://cuda.juliagpu.org/stable/installation/overview/) for additional installation requirements.
+
 # How to use
 There are two ways to construct an optimization problem in ConicSolve.jl
 1. Using the Low Level API
@@ -53,7 +57,7 @@ julia> push!(cones, PSDCone(p_1))
 julia> push!(cones, NonNegativeOrthant(p_2))
 julia> cone_qp = ConeQP(A, G, P, b, c, h, cones)
 julia> solver = Solver(cone_qp)
-julia> optimize!(solver)
+julia> run_solver(solver)
 ```
 
 ### Using an SDP Model
@@ -68,17 +72,17 @@ julia> c = get_trace(sdp)
 julia> set_objective(sdp, c)
 julia> qp = get_qp(sdp)
 julia> solver = Solver(qp)
-julia> optimize!(solver)
+julia> run_solver(solver)
 ```
 
 # Examples
 
-In the examples directory you will find a matrix completion example for image denoising which gives an idea of how to use the API for this solver.
+In the examples directory you will find several examples which gives an idea of how to use the API for this solver.
 
 # How to cite
 ```bibtex
 @misc{Leong2025,
-    title = {{ConicSolve} 0.0.1: A constrained optimization solver for scientific advancement},
+    title = {ConicSolve: A constrained optimization solver for scientific advancement},
     author = {Alexander Leong},
     url = {http://localhost:8000/index.html}
 }

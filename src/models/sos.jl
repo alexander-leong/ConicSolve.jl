@@ -212,7 +212,7 @@ end
 Get the Cone QP object representing the SOS optimization problem
 """
 function sos_to_qp(sos::SOS)
-    cone_qp = ConeQP(sos.A, sos.G, sos.P, sos.b, sos.c, sos.h, sos.cones)
+    cone_qp = ConeQP{Float64, Float64, Float64}(sos.A, sos.G, sos.P, sos.b, sos.c, sos.h, sos.cones)
     return cone_qp
 end
 
