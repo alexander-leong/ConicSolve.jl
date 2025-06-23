@@ -41,9 +41,11 @@ jobs:
         run: |
           using PackageCompiler; create_app(".", "./build")
         shell: cp ./graphic.txt ./build/bin
-        shell: mkdir ./conicsolve
-        shell: mv ./build/* ./conicsolve
-        shell: tar -czvf conicsolve_x86_64_ubuntu.tar.gz ./conicsolve
+      - name: Upload artifact
+        run: |
+          mkdir ./conicsolve
+          mv ./build/* ./conicsolve
+          tar -czvf conicsolve_x86_64_ubuntu.tar.gz ./conicsolve
       - uses: actions/upload-artifact@v4
         with:
           name: conicsolve-x86-64-ubuntu
