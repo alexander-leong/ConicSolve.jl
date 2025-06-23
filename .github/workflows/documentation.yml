@@ -30,7 +30,7 @@ jobs:
           using Pkg
           Pkg.develop(PackageSpec(path=pwd()))
           Pkg.instantiate()
-          add PackageCompiler
+          Pkg.add("PackageCompiler")
       - name: Build and deploy docs
         run: julia --color=yes --project=docs docs/make.jl
         env:
