@@ -34,7 +34,7 @@ mutable struct SOS
     diag_inds
     cones::Vector{Cone}
 
-    @doc"""
+    """
         SOS(n)
     
     Constructs an SOS optimization problem. \\

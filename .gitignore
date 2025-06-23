@@ -1,4 +1,5 @@
 .vscode
 *.jld
 JacobiSVD.jl
+build
 docs/build

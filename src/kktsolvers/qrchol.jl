@@ -7,7 +7,11 @@ file in the root directory
 
 """This file contains functions for solving the KKT system"""
 
-include("./cuda/qrchol.jl")
+function get_array(device, obj)
+    return obj
+end
+
+export get_array
 
 """
     qr_chol_solve(device, kktsystem, b_x, b_y, b_z, check)

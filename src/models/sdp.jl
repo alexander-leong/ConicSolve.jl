@@ -36,7 +36,7 @@ mutable struct SDP
     X_1_idx
 
     # X = [X_2 X_1; X_1' X_4]
-    @doc"""
+    """
         SDP(X_1)
     
     Constructs an SDP optimization problem. \\

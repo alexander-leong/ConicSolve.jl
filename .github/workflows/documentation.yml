@@ -30,8 +30,20 @@ jobs:
           using Pkg
           Pkg.develop(PackageSpec(path=pwd()))
           Pkg.instantiate()
-      - name: Build and deploy
+          add PackageCompiler
+      - name: Build and deploy docs
         run: julia --color=yes --project=docs docs/make.jl
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # If authenticating with GitHub Actions token
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }} # If authenticating with SSH deploy key
+      - name: Build standalone app
+        shell: julia --color=yes --project=. -e "using PackageCompiler; create_app(\".\", \"./build\")"
+        shell: cp ./graphic.txt ./build/bin
+      - name: Upload artifact
+        shell: mkdir ./conicsolve
+        shell: mv ./build/* ./conicsolve
+        shell: tar -czvf conicsolve_x86_64_ubuntu.tar.gz ./conicsolve
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conicsolve-x86-64-ubuntu
+          path: ./conicsolve_x86_64_ubuntu.tar.gz
