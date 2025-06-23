@@ -40,9 +40,9 @@ jobs:
         shell: julia --color=yes --project=.
         run: |
           using PackageCompiler; create_app(".", "./build")
-        shell: cp ./graphic.txt ./build/bin
       - name: Upload artifact
         run: |
+          cp ./graphic.txt ./build/bin
           mkdir ./conicsolve
           mv ./build/* ./conicsolve
           tar -czvf conicsolve_x86_64_ubuntu.tar.gz ./conicsolve
