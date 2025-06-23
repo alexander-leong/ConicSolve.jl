@@ -39,7 +39,8 @@ jobs:
       - name: Build standalone app
         shell: julia --color=yes --project=.
         run: |
-          using PackageCompiler; create_app(".", "./build")
+          using PackageCompiler
+          create_app(pwd(), pwd() * "/build")
       - name: Upload artifact
         run: |
           cp ./graphic.txt ./build/bin
