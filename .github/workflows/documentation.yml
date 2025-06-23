@@ -37,8 +37,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # If authenticating with GitHub Actions token
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }} # If authenticating with SSH deploy key
       - name: Build standalone app
-        shell: julia --color=yes --project=.
+        shell: julia --color=yes
         run: |
+          using Pkg
+          Pkg.activate(".")
           using PackageCompiler
           create_app(pwd(), pwd() * "/build")
       - name: Upload artifact
