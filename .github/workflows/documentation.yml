@@ -30,7 +30,6 @@ jobs:
           using Pkg
           Pkg.develop(PackageSpec(path=pwd()))
           Pkg.instantiate()
-          Pkg.add("PackageCompiler")
       - name: Build and deploy docs
         run: julia --color=yes --project=docs docs/make.jl
         env:
@@ -39,6 +38,8 @@ jobs:
       - name: Build standalone app
         shell: julia --color=yes --project=. {0}
         run: |
+          using Pkg
+          Pkg.add("PackageCompiler")
           using PackageCompiler
           create_app(pwd(), pwd() * "/build")
       - name: Upload artifact
