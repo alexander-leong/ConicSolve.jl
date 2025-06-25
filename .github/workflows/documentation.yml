@@ -8,7 +8,7 @@ on:
   pull_request:
 
 jobs:
-  build:
+  build_ubuntu:
     # These permissions are needed to:
     # - Deploy the documentation: https://documenter.juliadocs.org/stable/man/hosting/#Permissions
     # - Delete old caches: https://github.com/julia-actions/cache#usage
@@ -52,3 +52,28 @@ jobs:
         with:
           name: conicsolve-x86-64-ubuntu
           path: ./conicsolve_x86_64_ubuntu.tar.gz
+  
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - name: Build standalone app
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          Pkg.add("PackageCompiler")
+          using PackageCompiler
+          create_app(pwd(), joinpath(pwd(), "build"))
+      - name: Package build
+        run: |
+          Copy-Item -Path ".\graphic.txt" -Destination ".\build\bin\graphic.txt"
+          mkdir conicsolve
+          move build conicsolve
+          Compress-Archive -Path conicsolve -DestinationPath conicsolve_x86_64_windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conicsolve-x86-64-windows
+          path: conicsolve_x86_64_windows.zip
