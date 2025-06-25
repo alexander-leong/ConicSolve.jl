@@ -414,14 +414,14 @@ end
 
 Executes the solver on the optimization problem.
 """
-function run_solver(solver::Solver, is_init=false, kwargs...)
+function run_solver(solver::Solver, is_init=false, check=false, kwargs...)
     try
         print_header()
         @info "Optimize called"
         BLAS.set_num_threads(solver.num_threads)
         initialize!(solver, is_init)
-        if is_init == false
-            # check_preconditions(solver)
+        if check == true
+            check_preconditions(solver)
         end
         result = optimize_main!(solver, kwargs...)
         log_msg = ("Solver finished" * "\n" *
@@ -457,12 +457,12 @@ end
 
 function check_preconditions(solver::Solver)
     qp = solver.program
-    if !isnothing(program.A) && rank(qp.A) < size(qp.A)[1]
+    if !isnothing(qp.A) && rank(qp.A) < size(qp.A)[1]
         solver.status.status_termination = INFEASIBLE
         @error "Values of A are inconsistent or redundant."
         @assert false
     end
-    if !isnothing(program.A)
+    if !isnothing(qp.A)
         if rank([qp.P qp.A' qp.G']) < size(qp.P)[1]
             solver.status.status_termination = INFEASIBLE
             @error "There are some constraints in the problem that are either

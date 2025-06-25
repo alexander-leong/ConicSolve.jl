@@ -18,9 +18,7 @@ include("MOI_wrapper/MOI_wrapper.jl")
 include("utils.jl")
 
 Base.@ccallable function julia_main()::Cint
-    # out_filepath, in_filepath = ARGS
-    out_filepath = "/home/alexander/Documents/alexander_leong/ConicSolve.jl/build/good.txt"
-    in_filepath = "/home/alexander/Documents/alexander_leong/ConicSolve.jl/test/data/simple_problem.txt"
+    out_filepath, in_filepath = ARGS
     try
         solver = initialize_from_file(in_filepath)
         run_solver(solver)
