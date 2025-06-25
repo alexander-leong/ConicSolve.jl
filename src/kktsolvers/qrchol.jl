@@ -7,7 +7,17 @@ file in the root directory
 
 """This file contains functions for solving the KKT system"""
 
+function get_device_array(::Nothing, obj)
+end
+
 function get_array(device, obj)
+    if device == GPU
+        if isdefined(Main, :CUDA)
+            return get_device_array(0, obj)
+        else
+            @warn "GPU has been selected without CUDA, using CPU instead"
+        end
+    end
     return obj
 end
 

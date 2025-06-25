@@ -34,7 +34,7 @@ makedocs(;
             ),
         )),
         prettyurls = false,
-        repolink="http://localhost:8000",
+        repolink="https://github.com/alexander-leong/ConicSolve.jl",
     )
 )
 

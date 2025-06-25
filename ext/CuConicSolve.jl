@@ -10,11 +10,8 @@ else
     to_gpu_or_not_to_gpu(x) = x
 end
 
-function ConicSolve.get_array(device, obj)
-    if device == GPU
-        return CuArray{eltype(obj)}(obj)
-    end
-    return obj
+function ConicSolve.get_device_array(::Int, obj)
+    return CuArray{eltype(obj)}(obj)
 end
 
 end

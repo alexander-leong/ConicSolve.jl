@@ -44,6 +44,12 @@ end
 
 export Device, CPU, GPU
 
+function Base.parse(::Type{Device}, value)
+    return value == "CPU" ? CPU : GPU
+end
+
+export parse
+
 """
     ConeQP
 
@@ -959,10 +965,8 @@ function update_iterates(program::ConeQP,
 end
 
 function run_on_device(device, fn, args...)
-    if device == GPU
-        for arg in args
-            arg = CuArray{Float32}(arg)
-        end
+    for arg in args
+        arg = get_array(device, arg)
     end
     return fn(args...)
 end
@@ -1087,4 +1091,5 @@ export ConeQP
 export Solver
 
 export get_solution
+export get_solver_status
 export run_solver

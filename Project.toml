@@ -22,6 +22,10 @@ CuConicSolve = "CUDA"
 
 [compat]
 CSV = "0.10.15"
+CUDA = "5.8.2"
 JuMP = "1.25.0"
 MathOptInterface = "1.39.0"
 julia = "1.11"
+
+[extras]
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"

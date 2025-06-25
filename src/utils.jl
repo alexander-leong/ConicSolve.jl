@@ -78,7 +78,7 @@ function initialize_from_file(filepath)
         if T == Solver
             symbol, value = split(word, r"(,\s*)")
             symbol = Meta.parse(symbol)
-            value = parse(eltype(getproperty(obj, symbol)), value)
+            value = parse(typeof(getproperty(obj, symbol)), value)
             setproperty!(obj, symbol, value)
             solver = obj
             continue
@@ -107,14 +107,20 @@ end
 
 function write_result_to_file(filepath, solver)
     fp = open(filepath, "w")
-    status = get_solver_status(solver)
-    write(fp, "PRIMAL STATUS: " * string(status.status_primal) * "\n")
-    write(fp, "DUAL STATUS: " * string(status.status_dual) * "\n")
-    write(fp, "TERMINATION STATUS: " * string(status.status_termination) * "\n")
+
     program = solver.program
+    status = get_solver_status(solver)
+
+    write(fp, "PRIMAL STATUS: " * string(solver.status_primal) * "\n")
+    write(fp, "DUAL STATUS: " * string(solver.status_dual) * "\n")
+    write(fp, "TERMINATION STATUS: " * string(status.status_termination) * "\n")
+    
     write(fp, "x = " * string(program.KKT_x[program.inds_c]) * "\n")
-    write(fp, "y = " * string(program.KKT_x[program.inds_b]) * "\n")
+    if program.A != undef && !isnothing(program.A)
+        write(fp, "y = " * string(program.KKT_x[program.inds_b]) * "\n")
+    end
     write(fp, "z = " * string(program.KKT_x[program.inds_h]) * "\n")
     write(fp, "s = " * string(program.s) * "\n")
+    
     close(fp)
 end
