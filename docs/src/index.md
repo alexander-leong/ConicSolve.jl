@@ -95,7 +95,7 @@ In the examples directory you will find several examples which gives an idea of 
 @misc{Leong2025,
     title = {ConicSolve: A constrained optimization solver for scientific advancement},
     author = {Alexander Leong},
-    url = {http://localhost:8000/index.html}
+    url = {https://github.com/alexander-leong/ConicSolve.jl}
 }
 ```
 
