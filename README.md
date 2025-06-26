@@ -4,6 +4,12 @@ ConicSolve.jl is an Interior Point based constrained optimization solver based o
 
 ## Installation
 
+There are two ways to install ConicSolve.jl
+- As a Julia Package, see [Package Installation](#Package-Installation)
+- As a standalone binary executable, see [Standalone Installation](#Standalone-Installation)
+
+### Package Installation
+
 To use ConicSolve.jl, install [Julia](https://julialang.org/downloads/), then at the Julia REPL, type:
 
 ```julia
@@ -12,9 +18,83 @@ Pkg.add("ConicSolve")
 using ConicSolve
 ```
 
+### Standalone Installation
+
+At present, ConicSolve.jl (without CUDA support) can be run as a binary executable on Ubuntu x86-64 systems.
+
+Download the tar.gz archive from the project's GitHub build artifacts. After extracting the archive, there is a bin directory containing the ConicSolve binary executable.
+
+See [File based API](#File-based-API) for details on solving an optimization problem using the binary executable.
+
+## File based API
+
+The matrices, ``A``, ``G``, ``P``, and vectors, ``b``, ``c``, ``h`` for the optimization problem
+```math
+\begin{aligned}
+\text{minimize}\qquad &
+x^TPx \\
+\text{subject to}\qquad &
+h - Gx \succeq 0
+\end{aligned}
+```
+where
+```math
+\begin{aligned}
+G = \begin{bmatrix}
+2 & 1 \\
+-0.2 & -1 \\
+-0.533333 & -1
+\end{bmatrix} \qquad
+P = \begin{bmatrix}
+0.333333 & 0 \\
+0 & 0.25 \\
+\end{bmatrix} \qquad
+h = \begin{bmatrix}
+10 \\
+10 \\
+-3.75
+\end{bmatrix}
+\end{aligned}
+```
+can be defined in the file ``problem.txt`` (for example) below.
+
+__WARNING__: Newline between the definitions of ``G``, ``P``, ``c``, ``h``, ``cones``, ``Solver`` is important!
+```
+ConeQP
+G
+2, 1
+-0.2, -1
+-0.533333, -1
+
+P
+0.333333, 0
+0, 0.25
+
+c
+0, 0
+
+h
+10, 10, -3.75
+
+cones
+NonNegativeOrthant, 3
+
+Solver
+max_iterations, 10
+
+```
+
+The vector ``x`` is nonnegative, this is expressed in the cones section of the file as ``NonNegativeOrthant, 3`` where ``3`` is the number of elements (since ``x`` is length ``3``).
+
+Solve the problem by executing the following command. In bash for example
+```bash
+./conicsolve/bin/ConicSolve ./output.txt ./problem.txt
+```
+where the solver output is written to ``output.txt`` and the file defining the optimization problem is ``problem.txt``
+
 # Documentation
 
-Please refer to the package documentation at [Package Documentation](https://github.com/alexander-leong/ConicSolve.jl/blob/v0.0.1/docs/src/index.md)
+Please refer to the package documentation at [Package Documentation](https://alexander-leong.github.io/ConicSolve.jl/dev/)
 
 # Reference Material
 

@@ -36,6 +36,17 @@ using ConicSolve
 
 ConicSolve.jl uses CUDA.jl to accelerate matrix factorization methods for solving the KKT equations. Refer to [CUDA.jl](https://cuda.juliagpu.org/stable/installation/overview/) for additional installation requirements.
 
+Note: \
+GPU Acceleration from running ConicSolve.jl as a standalone binary executable is currently not supported.
+
+Enable GPU acceleration via the following code snippet
+```julia
+using CUDA
+using ConicSolve
+```
+
+Ensure the solver property `solver.device = GPU` has been set.
+
 # How to use
 There are two ways to construct an optimization problem in ConicSolve.jl
 1. Using the Low Level API

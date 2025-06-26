@@ -11,7 +11,6 @@ include("./arrayutils.jl")
 include("./debug.jl")
 include("./kktsolver.jl")
 
-using CUDA
 using LinearAlgebra
 using Logging
 using SparseArrays
@@ -45,20 +44,26 @@ end
 
 export Device, CPU, GPU
 
+function Base.parse(::Type{Device}, value)
+    return value == "CPU" ? CPU : GPU
+end
+
+export parse
+
 """
     ConeQP
 
 Represents a Conic Quadratic Program.
 """
 mutable struct ConeQP{T<:Number, U<:Number, V<:Number}
-    A::AbstractArray{Float64}
-    G::AbstractArray{V}
+    A::Union{AbstractArray{Float64}, Nothing}
+    G::Union{AbstractArray{V}, Nothing}
     KKT_b::AbstractVector{V}
     KKT_x::AbstractVector{V}
     P::Union{AbstractArray{Float64}, Nothing}
-    b::AbstractVector{Float64}
-    c::AbstractVector{U}
-    h::AbstractVector{Float64}
+    b::Union{AbstractVector{Float64}, Nothing}
+    c::Union{AbstractVector{U}, Nothing}
+    h::Union{AbstractVector{Float64}, Nothing}
     s::AbstractVector{V}
     z::AbstractVector{V}
     α::Float64
@@ -111,52 +116,20 @@ mutable struct ConeQP{T<:Number, U<:Number, V<:Number}
     NOTE: The K is sometimes dropped to simplify notation.
     """
     function ConeQP{T, U, V}(A::Union{AbstractArray{Float64}, Nothing},
-                    G::AbstractArray{T},
+                    G::Union{AbstractArray{T}, Nothing},
                     P::Union{AbstractArray{Float64}, Nothing},
                     b::Union{AbstractArray{Float64}, Nothing},
-                    c::AbstractArray{U},
-                    h::AbstractArray{Float64},
+                    c::Union{AbstractArray{U}, Nothing},
+                    h::Union{AbstractArray{Float64}, Nothing},
                     cones::Vector{Cone}) where {T<:Number, U<:Number, V<:Number}
         cone_qp = new{T, U, V}()
+        cone_qp.A = A
         cone_qp.G = G
         cone_qp.P = P
+        cone_qp.b = b
         cone_qp.c = c
         cone_qp.h = h
-        if A != undef && !isnothing(A)
-            if size(A)[2] != size(G)[2]
-                throw(DimensionMismatch("Number of columns of A does not equal G"))
-            else
-                cone_qp.A = A
-            end
-        end
-        if P != undef && !isnothing(P)
-            if size(G)[2] != size(P)[2]
-                throw(DimensionMismatch("Number of columns of G does not equal P"))
-            end
-            if size(P)[1] != size(P)[2]
-                throw(DimensionMismatch("P is not square"))
-            end
-        end
-        cone_qp.inds_c = 1:size(G)[2]
-        if b != undef && !isnothing(b)
-            if size(A)[1] != length(b)
-                throw(DimensionMismatch("Number of rows of A does not equal b"))
-            elseif size(A)[2] != length(c)
-                throw(DimensionMismatch("Number of columns of A does not equal c"))
-            else
-                cone_qp.b = b
-                cone_qp.inds_b = cone_qp.inds_c[end]+1:cone_qp.inds_c[end]+size(A)[1]
-                cone_qp.inds_h = cone_qp.inds_b[end]+1:cone_qp.inds_b[end]+size(G)[1]
-            end
-        else
-            cone_qp.inds_h = cone_qp.inds_c[end]+1:cone_qp.inds_c[end]+size(G)[1]
-        end
-        if size(G)[1] != length(h)
-            throw(DimensionMismatch("Number of rows of G does not equal h"))
-        end
         cone_qp.cones = cones
-        cone_qp.is_feasibility_problem = (P != undef && !isnothing(P) && P != zeros(size(P)) || c != zeros(size(G)[2]))
-        
         return cone_qp
     end
     
@@ -189,6 +162,56 @@ mutable struct ConeQP{T<:Number, U<:Number, V<:Number}
         cone_qp = ConeQP(undef, G, P, undef, c, h, cones)
         return cone_qp
     end
+
+    function ConeQP()
+        cone_qp = new{Float64, Float64, Float64}()
+        cone_qp.A = nothing
+        cone_qp.G = nothing
+        cone_qp.P = nothing
+        cone_qp.b = nothing
+        cone_qp.c = nothing
+        cone_qp.h = nothing
+        return cone_qp
+    end
+end
+
+function check_program(cone_qp::ConeQP)
+    A = cone_qp.A
+    G = cone_qp.G
+    P = cone_qp.P
+    b = cone_qp.b
+    c = cone_qp.c
+    h = cone_qp.h
+    if A != undef && !isnothing(A)
+        if size(A)[2] != size(G)[2]
+            throw(DimensionMismatch("Number of columns of A does not equal G"))
+        end
+    end
+    if P != undef && !isnothing(P)
+        if size(G)[2] != size(P)[2]
+            throw(DimensionMismatch("Number of columns of G does not equal P"))
+        end
+        if size(P)[1] != size(P)[2]
+            throw(DimensionMismatch("P is not square"))
+        end
+    end
+    cone_qp.inds_c = 1:size(G)[2]
+    if b != undef && !isnothing(b)
+        if size(A)[1] != length(b)
+            throw(DimensionMismatch("Number of rows of A does not equal b"))
+        elseif size(A)[2] != length(c)
+            throw(DimensionMismatch("Number of columns of A does not equal c"))
+        else
+            cone_qp.inds_b = cone_qp.inds_c[end]+1:cone_qp.inds_c[end]+size(A)[1]
+            cone_qp.inds_h = cone_qp.inds_b[end]+1:cone_qp.inds_b[end]+size(G)[1]
+        end
+    else
+        cone_qp.inds_h = cone_qp.inds_c[end]+1:cone_qp.inds_c[end]+size(G)[1]
+    end
+    if size(G)[1] != length(h)
+        throw(DimensionMismatch("Number of rows of G does not equal h"))
+    end
+    cone_qp.is_feasibility_problem = (P != undef && !isnothing(P) && P != zeros(size(P)) || c != zeros(size(G)[2]))
 end
 
 function get_variable_primal(program::ConeQP)
@@ -302,6 +325,7 @@ mutable struct Solver
         solver.device = CPU
         solver.kktsolver = setup_default_kkt_solver(kktsolve, preconditioner)
         if !ismissing(program)
+            check_program(program)
             solver.program = program
         end
         solver.limit_obj = limit_obj
@@ -390,14 +414,14 @@ end
 
 Executes the solver on the optimization problem.
 """
-function run_solver(solver::Solver, is_init=false, kwargs...)
+function run_solver(solver::Solver, is_init=false, check=false, kwargs...)
     try
         print_header()
         @info "Optimize called"
         BLAS.set_num_threads(solver.num_threads)
         initialize!(solver, is_init)
-        if is_init == false
-            # check_preconditions(solver)
+        if check == true
+            check_preconditions(solver)
         end
         result = optimize_main!(solver, kwargs...)
         log_msg = ("Solver finished" * "\n" *
@@ -433,12 +457,12 @@ end
 
 function check_preconditions(solver::Solver)
     qp = solver.program
-    if isdefined(qp, :A) && rank(qp.A) < size(qp.A)[1]
+    if !isnothing(qp.A) && rank(qp.A) < size(qp.A)[1]
         solver.status.status_termination = INFEASIBLE
         @error "Values of A are inconsistent or redundant."
         @assert false
     end
-    if isdefined(qp, :A)
+    if !isnothing(qp.A)
         if rank([qp.P qp.A' qp.G']) < size(qp.P)[1]
             solver.status.status_termination = INFEASIBLE
             @error "There are some constraints in the problem that are either
@@ -582,7 +606,7 @@ end
 
 function get_num_constraints(program::ConeQP)
     num_constraints = 0
-    if isdefined(program, :A)
+    if !isnothing(program.A)
         num_constraints += size(program.A)[1]
     end
     num_constraints += size(program.G)[1]
@@ -601,17 +625,15 @@ function initialize_solver!(solver::Solver)
     end
 
     @info "Solving for primal dual starting points"
-    inv_W = I(size(G)[1])
-    G_scaled = I(size(G)[1])
     b_z = @view program.KKT_b[program.inds_h]
     inv_W_b_z = -b_z
-    kkt_1_1 = G_scaled' * G_scaled
+    kkt_1_1 = G' * G
     if !isnothing(program.P)
         kkt_1_1 = program.P + kkt_1_1
     end
     kktsystem = program.kktsystem
     kktsystem.kkt_1_1 = kkt_1_1
-    x_hat = qp_solve(solver, G_scaled, inv_W_b_z, qr_chol_solve)
+    x_hat = qp_solve(solver, G, inv_W_b_z, qr_chol_solve)
     x_inds = 1:size(G)[2]
     program.z = -(program.h - G*x_hat[x_inds])
     z_hat = program.z
@@ -642,12 +664,12 @@ function initialize!(solver::Solver, is_init=false)
     solver.status.status_termination = INFEASIBLE
     log_solver_parameters(solver)
     program = solver.program
-    A = isdefined(program, :A) ? program.A : nothing
+    A = program.A
     G = program.G
     P = program.P
 
-    program.kktsystem = isdefined(program, :A) ? KKTSystem(A, G, P) : KKTSystem(G, P)
-    if isdefined(program, :b)
+    program.kktsystem = !isnothing(program.A) ? KKTSystem(A, G, P) : KKTSystem(G, P)
+    if !isnothing(program.b)
         program.KKT_b = vcat([-program.c, program.b, program.h]...)
     else
         program.KKT_b = vcat([-program.c, program.h]...)
@@ -763,7 +785,7 @@ function evaluate_residual(qp::ConeQP,
     if !isnothing(qp.P)
         P_x = qp.P * x
     end
-    if isdefined(qp, :A)
+    if !isnothing(qp.A)
         y = @view Δx[y_inds]
         r_x = P_x + qp.A' * y + qp.G' * z + qp.c
         r_y = qp.A * x - qp.b
@@ -897,7 +919,7 @@ function update_solver_status(solver::Solver)
     # evaluate residual
     r = evaluate_residual(program, x, x_inds, y_inds, z_inds)
     r_x = @view r[x_inds]
-    if isdefined(program, :A)
+    if !isnothing(program.A)
         r_y = @view r[y_inds]
     else
         r_y = [0]
@@ -943,10 +965,8 @@ function update_iterates(program::ConeQP,
 end
 
 function run_on_device(device, fn, args...)
-    if device == GPU
-        for arg in args
-            arg = CuArray{Float32}(arg)
-        end
+    for arg in args
+        arg = get_array(device, arg)
     end
     return fn(args...)
 end
@@ -994,7 +1014,7 @@ function get_central_path(solver::Solver,
         kktsystem.kkt_1_1 = zeros(Float32, size(gram_G_scaled))
         copyto!(kktsystem.kkt_1_1, gram_G_scaled)
     end
-    run_on_device(GPU, qr_dev, G_scaled)
+    run_on_device(solver.device, qr_dev, G_scaled)
     if !isnothing(program.P)
         kktsystem.kkt_1_1 = program.P + kktsystem.kkt_1_1
     end
@@ -1071,4 +1091,5 @@ export ConeQP
 export Solver
 
 export get_solution
+export get_solver_status
 export run_solver

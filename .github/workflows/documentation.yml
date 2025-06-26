@@ -8,7 +8,7 @@ on:
   pull_request:
 
 jobs:
-  build:
+  build-x86-64-ubuntu:
     # These permissions are needed to:
     # - Deploy the documentation: https://documenter.juliadocs.org/stable/man/hosting/#Permissions
     # - Delete old caches: https://github.com/julia-actions/cache#usage
@@ -30,8 +30,127 @@ jobs:
           using Pkg
           Pkg.develop(PackageSpec(path=pwd()))
           Pkg.instantiate()
-      - name: Build and deploy
+      - name: Build and deploy docs
         run: julia --color=yes --project=docs docs/make.jl
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # If authenticating with GitHub Actions token
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }} # If authenticating with SSH deploy key
+      - name: Build standalone app
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          Pkg.add("PackageCompiler")
+          using PackageCompiler
+          create_app(pwd(), pwd() * "/build")
+      - name: Upload artifact
+        run: |
+          cp ./graphic.txt ./build/bin
+          ./build/bin/ConicSolve ./build/output.txt ./test/data/simple_problem.txt
+          mkdir ./conicsolve
+          mv ./build/* ./conicsolve
+          tar -czvf conicsolve_x86_64_ubuntu.tar.gz ./conicsolve
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conicsolve-x86-64-ubuntu
+          path: ./conicsolve_x86_64_ubuntu.tar.gz
+  
+  build-arm64-ubuntu:
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: read
+      statuses: write
+    runs-on: [ubuntu-22.04-arm]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - name: Install project dependencies
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          Pkg.instantiate()
+      - name: Build standalone app
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          Pkg.add("PackageCompiler")
+          using PackageCompiler
+          create_app(pwd(), pwd() * "/build")
+      - name: Upload artifact
+        run: |
+          cp ./graphic.txt ./build/bin
+          ./build/bin/ConicSolve ./build/output.txt ./test/data/simple_problem.txt
+          mkdir ./conicsolve
+          mv ./build/* ./conicsolve
+          tar -czvf conicsolve_arm64_ubuntu.tar.gz ./conicsolve
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conicsolve-arm64-ubuntu
+          path: ./conicsolve_arm64_ubuntu.tar.gz
+  
+  build-arm64-macos:
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: read
+      statuses: write
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - name: Install project dependencies
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          Pkg.instantiate()
+      - name: Build standalone app
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          Pkg.add("PackageCompiler")
+          using PackageCompiler
+          create_app(pwd(), pwd() * "/build")
+      - name: Upload artifact
+        run: |
+          cp ./graphic.txt ./build/bin
+          ./build/bin/ConicSolve ./build/output.txt ./test/data/simple_problem.txt
+          mkdir ./conicsolve
+          mv ./build/* ./conicsolve
+          tar -czvf conicsolve_arm64_macos.tar.gz ./conicsolve
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conicsolve-arm64-macos
+          path: ./conicsolve_arm64_macos.tar.gz
+  
+  build-x86-64-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - name: Build standalone app
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          Pkg.add("PackageCompiler")
+          using PackageCompiler
+          create_app(pwd(), joinpath(pwd(), "build"))
+      - name: Package build
+        run: |
+          Copy-Item -Path ".\graphic.txt" -Destination ".\build\bin\graphic.txt"
+          .\build\bin\ConicSolve.exe .\build\output.txt .\test\data\simple_problem.txt
+          mkdir conicsolve
+          move build conicsolve
+          Compress-Archive -Path conicsolve -DestinationPath conicsolve_x86_64_windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conicsolve-x86-64-windows
+          path: conicsolve_x86_64_windows.zip

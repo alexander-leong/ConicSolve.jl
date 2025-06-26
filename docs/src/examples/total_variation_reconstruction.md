@@ -30,8 +30,20 @@ julia example.jl
 
 ### Explanation
 
-We can write the optimization problem in conic form as follows:
+The ``L_1`` constraint can be realized by introducing an auxiliary variable ``\epsilon_1`` which is nonnegative. This is achieved with two sets of inequality constraints with respect to the Nonnegative Orthant, ``\epsilon_1 \ge D\hat{x}`` and ``\epsilon_1 \ge -D\hat{x}``.
+
+The ``L_2`` constraint can be realized by introducing an auxiliary variable ``\epsilon_2`` and setting the equality constraint ``\hat{x} - x + \epsilon_2 = 0``.
+
+We also need to set the equality constraints for the values of the input signal ``x``.
+
+Finally, solve the Total Variation Reconstruction problem as a Quadratic Programming problem is as follows:
 ```math
+\begin{aligned}
+\text{minimize}\qquad & (\epsilon_2)^2 + \lambda \epsilon_1 \\
+\text{subject to}\qquad & \hat{x} - x + \epsilon_2 = 0 \\
+\qquad & \epsilon_1 \ge D\hat{x} \\
+\qquad & \epsilon_1 \ge -D\hat{x}
+\end{aligned}
 ```
 
 #### Data Acquisition
