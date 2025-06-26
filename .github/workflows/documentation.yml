@@ -53,6 +53,79 @@ jobs:
           name: conicsolve-x86-64-ubuntu
           path: ./conicsolve_x86_64_ubuntu.tar.gz
   
+  build-arm64-ubuntu:
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: read
+      statuses: write
+    runs-on: [ubuntu-22.04-arm]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - name: Install project dependencies
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          Pkg.instantiate()
+      - name: Build standalone app
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          Pkg.add("PackageCompiler")
+          using PackageCompiler
+          create_app(pwd(), pwd() * "/build")
+      - name: Upload artifact
+        run: |
+          cp ./graphic.txt ./build/bin
+          mkdir ./conicsolve
+          mv ./build/* ./conicsolve
+          tar -czvf conicsolve_arm64_ubuntu.tar.gz ./conicsolve
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conicsolve-arm64-ubuntu
+          path: ./conicsolve_arm64_ubuntu.tar.gz
+  
+  build-x86-64-macos:
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: read
+      statuses: write
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - name: Install project dependencies
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          Pkg.instantiate()
+      - name: Build standalone app
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          Pkg.add("PackageCompiler")
+          using PackageCompiler
+          create_app(pwd(), pwd() * "/build")
+      - name: Upload artifact
+        run: |
+          cp ./graphic.txt ./build/bin
+          mkdir ./conicsolve
+          mv ./build/* ./conicsolve
+          tar -czvf conicsolve_x86_64_macos.tar.gz ./conicsolve
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conicsolve-x86-64-macos
+          path: ./conicsolve_x86_64_macos.tar.gz
+  
   build-x86-64-windows:
     runs-on: windows-latest
     steps:
