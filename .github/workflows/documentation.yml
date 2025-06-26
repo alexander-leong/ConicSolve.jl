@@ -45,6 +45,7 @@ jobs:
       - name: Upload artifact
         run: |
           cp ./graphic.txt ./build/bin
+          ./build/bin/ConicSolve ./build/output.txt ./test/data/simple_problem.txt
           mkdir ./conicsolve
           mv ./build/* ./conicsolve
           tar -czvf conicsolve_x86_64_ubuntu.tar.gz ./conicsolve
@@ -82,6 +83,7 @@ jobs:
       - name: Upload artifact
         run: |
           cp ./graphic.txt ./build/bin
+          ./build/bin/ConicSolve ./build/output.txt ./test/data/simple_problem.txt
           mkdir ./conicsolve
           mv ./build/* ./conicsolve
           tar -czvf conicsolve_arm64_ubuntu.tar.gz ./conicsolve
@@ -118,6 +120,7 @@ jobs:
       - name: Upload artifact
         run: |
           cp ./graphic.txt ./build/bin
+          ./build/bin/ConicSolve ./build/output.txt ./test/data/simple_problem.txt
           mkdir ./conicsolve
           mv ./build/* ./conicsolve
           tar -czvf conicsolve_x86_64_macos.tar.gz ./conicsolve
@@ -143,6 +146,7 @@ jobs:
       - name: Package build
         run: |
           Copy-Item -Path ".\graphic.txt" -Destination ".\build\bin\graphic.txt"
+          .\build\bin\ConicSolve.exe .\build\output.txt .\test\data\simple_problem.txt
           mkdir conicsolve
           move build conicsolve
           Compress-Archive -Path conicsolve -DestinationPath conicsolve_x86_64_windows.zip
