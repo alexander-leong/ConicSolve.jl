@@ -75,41 +75,64 @@ function decompose(f)
     C = DynamicPolynomials.coefficients(f, SymbolicWedderburn.basis(wedderburn))
 	psds = SymbolicWedderburn.direct_summands(wedderburn)
 
-    for iv in SymbolicWedderburn.invariant_vectors(wedderburn)
+    ivs = SymbolicWedderburn.invariant_vectors(wedderburn)
+    b = zeros(length(ivs))
+    for (i, iv) in enumerate(ivs)
         c = dot(C, iv)
 	    M_orb_ivc = invariant_constraint!(M_orb, M, iv)
         Mπs = SymbolicWedderburn.diagonalize(M_orb_ivc, wedderburn)
         # sum(dot(Mπ, Pπ) for (Mπ, Pπ) in zip(Mπs, psds) if !iszero(Mπ)) == c
+        if !iszero(Mπ)
+            b[i] = c
+        else
+            b[i] = 0
+        end
     end
+    return Mπs, b
 end
 
-# function mat_from_row_blocks(gs)
-#     row_dims = [size(x)[1] for x in gs]
-#     col_dims = [size(x)[2] for x in gs]
-#     prepend!(row_dims, 1)
-#     prepend!(col_dims, 1)
-#     num_rows = sum(row_dims)
-#     num_cols = maximum(col_dims)
-#     G = zeros(num_rows, num_cols)
-#     row_idx = 1
-#     for (i, g) in enumerate(gs)
-#         row_idx += row_dims[i+1]
-#         row_idx_n += row_dims[i+2]
-#         col_idx += col_dims[i+1]
-#         col_idx_n += col_dims[i+2]
-#         rows = row_idx:row_idx_n
-#         cols = col_idx:col_idx_n
-#         G[rows, cols] = g
-#     end
-#     return G
-# end
-
-function set_objective()
+function set_objective(c)
+    c[end] = -1
+    return c
 end
 
+# ------------------------------------------------------------------------
+# NOTES
+# The PSD constraint matrix "G" is a diagonal matrix
+# The vector "h" is the zero vector
+
+# The matrix "A" has the following structure
+# 1 ... 1 0 ... 0 0 ... 0
+# 0 ... 0 1 ... 1 0 ... 0
+# 0 ... 0 0 ... 0 1 ... 1
+# The vector "b" is just dot(C, iv)
+
+# The vector "c" is [0 ... 0 t=1]
+# The objective is to maximize c*x, i.e. minimize -c*x
+# ------------------------------------------------------------------------
 function sos_to_qp(f)
-    decompose(f)
-    # G = mat_from_row_blocks()
+    Mπs, b = decompose(f)
+    num_vars = Int(sum([size(x, 1) * (size(x, 1) + 1)/2 for x in Mπs]))
+    A = zeros((length(b), num_vars + 1))
+    j = 1
+    for i in axes(A, 1)
+        idx = j
+        j += size(Mπs[i], 1)
+        A[i, idx:j] .= 1
+    end
+    c = zeros(num_vars + 1)
+    c = set_objective(c)
+    G = Matrix{Float64}(I, num_vars + 1, num_vars + 1)
+    h = zeros(num_vars + 1)
+    P = zeros((num_vars + 1, num_vars + 1))
 
     # construct problem
+    cones::Vector{Cone} = []
+    for x in Mπs
+        p = size(x, 1)
+        push!(cones, PSDCone(p))
+    end
+    push!(cones, NonNegativeOrthant(1))
+    cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
+    return cone_qp
 end
