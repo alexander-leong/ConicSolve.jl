@@ -52,6 +52,21 @@ function invariant_constraint!(
     return M_orb
 end
 
+function set_A_i!(A, Mπs, i)
+    j = 1
+    for i in axes(A, 1)
+        idx = j
+        j += size(Mπs[i], 1) * (size(Mπs[i], 1) + 1) / 2
+        # get vectorized lower triangular entries of Mπs[i]
+        mask = ones(size(Mπs[i]))
+        Mπs_idx = CartesianIndices(size(Mπs))
+        Mπs_idx = get_triangular_idx(Mπs_idx, mask)
+        Mπ_vec = Mπs[Mπs_idx]
+        A[i, idx:j] .= Mπ_vec
+    end
+    return A
+end
+
 function decompose(f)
     deg = DynamicPolynomials.maxdegree(f)
 	vars = DynamicPolynomials.variables(f)
@@ -72,27 +87,36 @@ function decompose(f)
 	end
 	M_orb = similar(M, eltype(wedderburn))
 
-    C = DynamicPolynomials.coefficients(f, SymbolicWedderburn.basis(wedderburn))
+    basis_constraints = SymbolicWedderburn.basis(wedderburn)
+    C = DynamicPolynomials.coefficients(f, basis_constraints)
 	psds = SymbolicWedderburn.direct_summands(wedderburn)
 
     ivs = SymbolicWedderburn.invariant_vectors(wedderburn)
-    b = zeros(length(ivs))
+    b = zeros(length(ivs) + 2)
+    A = zeros((length(b), num_vars + 2))
     for (i, iv) in enumerate(ivs)
         c = dot(C, iv)
+        b[i] = c
 	    M_orb_ivc = invariant_constraint!(M_orb, M, iv)
         Mπs = SymbolicWedderburn.diagonalize(M_orb_ivc, wedderburn)
-        # sum(dot(Mπ, Pπ) for (Mπ, Pπ) in zip(Mπs, psds) if !iszero(Mπ)) == c
-        if !iszero(Mπ)
-            b[i] = c
-        else
-            b[i] = 0
-        end
+        A = set_A_i!(A, Mπs, i)
     end
-    return Mπs, b
+    # set poly - t constraint where "t" is the variable (scalar) to optimize
+    # There are two equality constraints to implement this, hence length(ivs) + 2
+    # The constraints are based on defining the additional variables:
+    #   - x[end-1] is C[1] the constant term in the polynomial f
+    #   - x[end] is the variable "t" being optimized
+    # Remember x[1] is poly - t (not C[1])!!
+    A[end, 1] = -1
+    A[end, end-1] = 1
+    A[end, end] = 1
+    b[end-1] = C[1]
+    b[end] = 0
+    return A, Mπs, b
 end
 
 function set_objective(c)
-    c[end] = -1
+    c[end] = -1 # minimizing (not maximizing)
     return c
 end
 
@@ -101,30 +125,24 @@ end
 # The PSD constraint matrix "G" is a diagonal matrix
 # The vector "h" is the zero vector
 
-# The matrix "A" has the following structure
-# 1 ... 1 0 ... 0 0 ... 0
-# 0 ... 0 1 ... 1 0 ... 0
-# 0 ... 0 0 ... 0 1 ... 1
+# The constraint dot(Mπ, Pπ) for (Mπ, Pπ) in zip(Mπs, psds) if !iszero(Mπ) == c
+# is implemented by the matrix "A" having the following structure:
+# vec(Mπ_1)  0 ... 0   0 ... 0
+#  0 ... 0  vec(Mπ_2)  0 ... 0
+#  0 ... 0   0 ... 0  vec(Mπ_n)
 # The vector "b" is just dot(C, iv)
 
 # The vector "c" is [0 ... 0 t=1]
 # The objective is to maximize c*x, i.e. minimize -c*x
 # ------------------------------------------------------------------------
 function sos_to_qp(f)
-    Mπs, b = decompose(f)
+    A, Mπs, b = decompose(f)
     num_vars = Int(sum([size(x, 1) * (size(x, 1) + 1)/2 for x in Mπs]))
-    A = zeros((length(b), num_vars + 1))
-    j = 1
-    for i in axes(A, 1)
-        idx = j
-        j += size(Mπs[i], 1)
-        A[i, idx:j] .= 1
-    end
-    c = zeros(num_vars + 1)
+    c = zeros(num_vars + 2)
     c = set_objective(c)
-    G = Matrix{Float64}(I, num_vars + 1, num_vars + 1)
-    h = zeros(num_vars + 1)
-    P = zeros((num_vars + 1, num_vars + 1))
+    G = Matrix{Float64}(I, num_vars + 2, num_vars + 2)
+    h = zeros(num_vars + 2)
+    P = zeros((num_vars + 2, num_vars + 2))
 
     # construct problem
     cones::Vector{Cone} = []
@@ -132,7 +150,7 @@ function sos_to_qp(f)
         p = size(x, 1)
         push!(cones, PSDCone(p))
     end
-    push!(cones, NonNegativeOrthant(1))
+    push!(cones, NonNegativeOrthant(2))
     cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
     return cone_qp
 end
