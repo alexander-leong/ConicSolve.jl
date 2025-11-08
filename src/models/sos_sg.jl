@@ -52,7 +52,7 @@ function invariant_constraint!(
     return M_orb
 end
 
-function set_A_i!(A, Mπs, i)
+function set_A_i!(A, Mπs, num_vars)
     j = 1
     for i in axes(A, 1)
         idx = j
@@ -62,21 +62,28 @@ function set_A_i!(A, Mπs, i)
         Mπs_idx = CartesianIndices(size(Mπs))
         Mπs_idx = get_triangular_idx(Mπs_idx, mask)
         Mπ_vec = Mπs[Mπs_idx]
-        A[i, idx:j] .= Mπ_vec
+        a = zeros((1, num_vars))
+        if iszero(Mπ_vec)
+            continue
+        end
+        a[1, idx:j] .= Mπ_vec
+        A = vcat(A, a)
     end
     return A
 end
 
-function decompose(f)
+export set_A_i!
+
+function decompose(f, n, x)
     deg = DynamicPolynomials.maxdegree(f)
 	vars = DynamicPolynomials.variables(f)
 	basis = DynamicPolynomials.monomials(vars, 0:deg) # basis_constraints
-	basis_half = DynamicPolynomials.monomials(vars, 0:deg÷2) # basis_psd
+    basis_half = DynamicPolynomials.monomials(vars, 0:deg÷2) # basis_psd
 
-	perm_G = SymbolicWedderburn.PermGroup([perm"(1,2)", Perm([2:n; 1])])
+	pg = PermGroup([perm"(1,2)", Perm([2:n; 1])])
 	wedderburn = WedderburnDecomposition(
 		Float64,
-		perm_G,
+		pg,
 		VariablePermutation(x),
 		basis,
 		basis_half,
@@ -89,17 +96,19 @@ function decompose(f)
 
     basis_constraints = SymbolicWedderburn.basis(wedderburn)
     C = DynamicPolynomials.coefficients(f, basis_constraints)
-	psds = SymbolicWedderburn.direct_summands(wedderburn)
+    psds = SymbolicWedderburn.direct_summands(wedderburn)
+    num_vars = sum([size(psd, 1) * (size(psd, 1) + 1) / 2 for psd in psds])
 
     ivs = SymbolicWedderburn.invariant_vectors(wedderburn)
-    b = zeros(length(ivs) + 2)
-    A = zeros((length(b), num_vars + 2))
+    b = zeros(length(ivs) + 2) # FIXME
+    A = zeros((3, Int(num_vars + 2)))
     for (i, iv) in enumerate(ivs)
         c = dot(C, iv)
         b[i] = c
 	    M_orb_ivc = invariant_constraint!(M_orb, M, iv)
         Mπs = SymbolicWedderburn.diagonalize(M_orb_ivc, wedderburn)
-        A = set_A_i!(A, Mπs, i)
+        return Mπs, wedderburn
+        A = set_A_i!(A, Mπs[i], num_vars)
     end
     # set poly - t constraint where "t" is the variable (scalar) to optimize
     # There are two equality constraints to implement this, hence length(ivs) + 2
@@ -112,7 +121,13 @@ function decompose(f)
     A[end, end] = 1
     b[end-1] = C[1]
     b[end] = 0
-    return A, Mπs, b
+    return A, b
+end
+
+function get_moment_matrix(psds, x)
+    # get block diagonal form from solution vector x
+
+    # apply change of basis on bilinear form (M = psds * blockdiag(x) * psds^T)
 end
 
 function set_objective(c)
@@ -131,14 +146,12 @@ end
 #  0 ... 0  vec(Mπ_2)  0 ... 0
 #  0 ... 0   0 ... 0  vec(Mπ_n)
 # The vector "b" is just dot(C, iv)
-
-# The vector "c" is [0 ... 0 t=1]
-# The objective is to maximize c*x, i.e. minimize -c*x
 # ------------------------------------------------------------------------
-function sos_to_qp(f)
-    A, Mπs, b = decompose(f)
+function sos_to_qp(f, n, x)
+    A, Mπs, b = decompose(f, n, x)
     num_vars = Int(sum([size(x, 1) * (size(x, 1) + 1)/2 for x in Mπs]))
     c = zeros(num_vars + 2)
+    # The vector "c" is [0 ... 0 -1]
     c = set_objective(c)
     G = Matrix{Float64}(I, num_vars + 2, num_vars + 2)
     h = zeros(num_vars + 2)
@@ -154,3 +167,5 @@ function sos_to_qp(f)
     cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
     return cone_qp
 end
+
+export decompose
