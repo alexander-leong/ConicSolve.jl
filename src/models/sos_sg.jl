@@ -52,29 +52,102 @@ function invariant_constraint!(
     return M_orb
 end
 
-function set_A_i!(A, Mπs, num_vars)
-    j = 1
-    for i in axes(A, 1)
+function get_lt_idx(n)
+    i = 1
+    inds = []
+    for l in 1:n
+        for k in i:n
+            push!(inds, CartesianIndex((k, l)))
+        end
+        i += 1
+    end
+    return inds
+end
+
+function get_lt_vals(A)
+    n = size(A, 1)
+    inds = get_lt_idx(n)
+    lt_vals = map(i -> A[i], inds)
+    return lt_vals
+end
+
+U_map = Dict()
+
+function reduce_psd(A, i)
+    A, U, S = tsvd(A)
+    U_map[i] = (U, S)
+    return diagm(S)
+end
+
+function set_A_i!(A, Mπs)
+	num_vars = size(A, 2)
+    j = 0
+    m = 0
+	# println(length(axes(Mπs, 1)))
+    for Mπs_j in Mπs
         idx = j
-        j += size(Mπs[i], 1) * (size(Mπs[i], 1) + 1) / 2
+		idx += 1
+        j += Int(size(Mπs_j, 1) * (size(Mπs_j, 1) + 1) / 2)
         # get vectorized lower triangular entries of Mπs[i]
-        mask = ones(size(Mπs[i]))
-        Mπs_idx = CartesianIndices(size(Mπs))
-        Mπs_idx = get_triangular_idx(Mπs_idx, mask)
-        Mπ_vec = Mπs[Mπs_idx]
-        a = zeros((1, num_vars))
+        Mπs_j, U, S = tsvd(Mπs_j)
+        # eigmax used for computing regularized term cannot handle complex eigenvalues
+        Mπs_j = regularize(Mπs_j)
+        # cn = cond(Mπs_j)
+        # if cn > 1e2
+        S = svd(Mπs_j).S
+        σ_max, σ_min = S[1], S[end]
+        # println("WARNING: Poorly conditioned PSD condition generated! (condition number = $(cn))")
+        println("PSD condition generated (n, σ_max, σ_min = $(length(S)), $(σ_max), $(σ_min))")
+        if length(S) == 3 && σ_max > 0 && isapprox(σ_min, 0)
+            println(Mπs_j)
+        end
+        # end
+		Mπ_vec = get_lt_vals(Mπs_j)
+		
         if iszero(Mπ_vec)
             continue
         end
-        a[1, idx:j] .= Mπ_vec
+        a = zeros((1, num_vars))
+        a[idx:j] .= Mπ_vec
         A = vcat(A, a)
+        m += 1
     end
+    return A, m
+end
+
+# rank revealing qr, remove redundant constraints
+function rrqr(A, b, tol=1e-3)
+    F = qr(A', ColumnNorm())
+    # get list of row indices where diagonal elements of R satisfy tol
+    inds = [i for (i, v) in enumerate(diag(F.R)) if abs(v) >= tol]
+    inds = [x[2] for x in findall(val -> val == 1, F.P'[inds, :])]
+    # reduced A, b
+    rA = A[inds, :]
+    rb = b[inds]
+    return rA, rb
+end
+
+function tsvd(A, tol=1e-9)
+    F = svd(A)
+    S::Vector{Float64} = []
+    for v in F.S
+        if v >= tol
+            push!(S, v)
+        end
+    end
+    U = F.U[:, 1:length(S)]
+    Vt = F.Vt[1:length(S), :]
+    A = U * diagm(S) * Vt
+    return Hermitian(A), U, S
+end
+
+function regularize(A, tol=1e-9)
+    eps = tol * eigmax(A)
+    A = A + eps * I
     return A
 end
 
-export set_A_i!
-
-function decompose(f, n, x)
+function decompose(f, n, x, num_additional_vars=0)
     deg = DynamicPolynomials.maxdegree(f)
 	vars = DynamicPolynomials.variables(f)
 	basis = DynamicPolynomials.monomials(vars, 0:deg) # basis_constraints
@@ -94,45 +167,52 @@ function decompose(f, n, x)
 	end
 	M_orb = similar(M, eltype(wedderburn))
 
+    psds = SymbolicWedderburn.direct_summands(wedderburn)
+    num_vars = Int(sum([size(psd, 1) * (size(psd, 1) + 1) / 2 for psd in psds]))
+
+    # FIXME: relocate this logic outside
+    # Matrix A defining equality constraints in Ax = b
+    total_num_vars = num_vars + num_additional_vars
+    A = Matrix{Float64}(undef, 0, Int(total_num_vars))
+    # Vector b defining equality constraints in Ax = b
+    b = []
+
     basis_constraints = SymbolicWedderburn.basis(wedderburn)
     C = DynamicPolynomials.coefficients(f, basis_constraints)
-    psds = SymbolicWedderburn.direct_summands(wedderburn)
-    num_vars = sum([size(psd, 1) * (size(psd, 1) + 1) / 2 for psd in psds])
-
+    
     ivs = SymbolicWedderburn.invariant_vectors(wedderburn)
-    b = zeros(length(ivs) + 2) # FIXME
-    A = zeros((3, Int(num_vars + 2)))
-    for (i, iv) in enumerate(ivs)
+    for iv in ivs
         c = dot(C, iv)
-        b[i] = c
 	    M_orb_ivc = invariant_constraint!(M_orb, M, iv)
         Mπs = SymbolicWedderburn.diagonalize(M_orb_ivc, wedderburn)
-        return Mπs, wedderburn
-        A = set_A_i!(A, Mπs[i], num_vars)
+        A, m = set_A_i!(A, Mπs)
+        b = append!(b, fill(c, m))
     end
-    # set poly - t constraint where "t" is the variable (scalar) to optimize
-    # There are two equality constraints to implement this, hence length(ivs) + 2
-    # The constraints are based on defining the additional variables:
-    #   - x[end-1] is C[1] the constant term in the polynomial f
-    #   - x[end] is the variable "t" being optimized
-    # Remember x[1] is poly - t (not C[1])!!
-    A[end, 1] = -1
-    A[end, end-1] = 1
-    A[end, end] = 1
-    b[end-1] = C[1]
-    b[end] = 0
-    return A, b
+
+    A, b = rrqr(A, b)
+    cn = cond(A)
+    if cn > 1e2
+        println("WARNING: Poorly conditioned equality matrix defined! (condition number = $(cn)")
+    end
+    return A, b, num_vars, psds
 end
 
-function get_moment_matrix(psds, x)
+function get_value_in_original_basis(psds, x)
     # get block diagonal form from solution vector x
+    n_i = [size(X, 1) for X in psds_mat]
+    inds = [1, cumsum(n_i)...]
+    X_i = [mat(x[inds[i]:inds[i+1]]) for (i, _) in enumerate(psds)]
 
     # apply change of basis on bilinear form (M = psds * blockdiag(x) * psds^T)
-end
+    Ms = []
+    for (i, psd) in enumerate(psds)
+        M_i = vec(psd * X_i[i] * psd')
+        push!(Ms, M_i)
+    end
 
-function set_objective(c)
-    c[end] = -1 # minimizing (not maximizing)
-    return c
+    # convert to vectorized form
+    M = vcat(Ms...)
+    return M
 end
 
 # ------------------------------------------------------------------------
