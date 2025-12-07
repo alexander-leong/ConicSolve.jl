@@ -15,6 +15,8 @@ using StarAlgebras
 using SparseArrays
 using SymbolicWedderburn
 
+include("../arrayutils.jl")
+
 mutable struct SOS_Symmetric_Group
     basis
     basis_half
@@ -71,60 +73,6 @@ function invariant_constraint!(
     return M_orb
 end
 
-function get_lt_idx(n)
-    i = 1
-    inds = []
-    for l in 1:n
-        for k in i:n
-            push!(inds, CartesianIndex((k, l)))
-        end
-        i += 1
-    end
-    return inds
-end
-
-function get_lt_vals(A)
-    n = size(A, 1)
-    inds = get_lt_idx(n)
-    lt_vals = map(i -> A[i], inds)
-    return lt_vals
-end
-
-function get_mat_from_lt_vec(v, N)
-    V = zeros((N, N))
-    i = 1
-    for n in 1:N
-        for m in n:N
-            V[m, n] = v[i]
-            V[n, m] = v[i]
-            i += 1
-        end
-    end
-    return V
-end
-
-function get_vec_from_lt_mat(A)
-    v = []
-    N = size(A, 1)
-    for n in 1:N
-        for m in n:N
-            push!(v, A[m, n])
-        end
-    end
-    return v
-end
-
-function get_mat_dim(v)
-    i = 1
-    while i < length(v)
-        if (i * (i + 1)) / 2 == length(v)
-            return i
-        end
-        i += 1
-    end
-    return 1
-end
-
 function set_A_i!(A, Mπs, equality_constraint_indices)
     j = 0
     m = 0
@@ -133,31 +81,16 @@ function set_A_i!(A, Mπs, equality_constraint_indices)
 		idx += 1
         j += Int(size(Mπs_j, 1) * (size(Mπs_j, 1) + 1) / 2)
 		
+        # Omit generated redundant PSD constraint
         if iszero(Mπs_j)
-            # println("Omitting generated PSD constraint")
             continue
         end
-        # TODO: remove regularization logic, refactor into face reduction module
-        # eigmax used for computing regularized term cannot handle complex eigenvalues
-        # regularized_Mπs_j, S = regularize(Mπs_j)
-        # S = svd(regularized_Mπs_j).S
-        # σ_max, σ_min = S[1], S[end]
-        # num_redundant = count(s -> s < 1e-6, S)
-        # if σ_min < 1e-3
-            # println(regularized_Mπs_j)
-            # println("PSD condition generated (n, num_redundant, σ_max, σ_min = $(length(S)), $(num_redundant), $(σ_max), $(σ_min))")
-        # end
         # get vectorized lower triangular entries of Mπs[i]
         Mπ_vec = get_lt_vals(Mπs_j)
 
-        # S = svd(Mπs_j).S
-        # σ_max, σ_min = S[1], S[end]
-        # num_redundant = count(s -> s < 1e-6, S)
-        # println("PSD condition generated (n, num_redundant, σ_max, σ_min = $(length(S)), $(num_redundant), $(σ_max), $(σ_min))")
         a = get_constraint(A, Mπ_vec, idx)
         A = vcat(A, a)
         push!(equality_constraint_indices, (idx, j))
-        # println("$(idx), $(length(idx:j))")
         m += 1
     end
     return A, m
@@ -272,22 +205,40 @@ function wedderburn_decompose(f, n, x, num_additional_vars=0)
     return A, b, num_vars, psds, sos_symmetric_group
 end
 
-function get_value_in_original_basis(psds, x)
+function get_mat_vec_len(psds)
+    # number of elements in each lower triangular psd matrix
+    n_i = [get_lt_vec_len(X) for X in psds]
+    return n_i
+end
+
+function get_value_in_original_basis(summands, x)
+    # TODO useless for now
+    # performs change of basis for an endomorphism
+    # see pg.118 of MO13-Blekherman-Parrilo-Thomas
+    
     # get block diagonal form from solution vector x
-    n_i = [size(X, 1) for X in psds_mat]
-    inds = [1, cumsum(n_i)...]
-    X_i = [get_mat_from_lt_vec(x[inds[i]:inds[i+1]], n_i[i]) for (i, _) in enumerate(psds)]
+    n_i = get_mat_vec_len(summands)
+    inds = [0, cumsum(n_i)...]
+    xs = []
+    for i in 1:length(inds)-1
+        push!(xs, x[inds[i]+1:inds[i+1]])
+    end
+    X = block_diagonalize_from_lt_vecs(xs)
+    println("Dimensions of X: $(size(X))")
+
+    # construct change of basis matrix T
+    Q = qr(vcat(summands...)).Q
+    m = size(summands[1], 2)
+    n = size(Q, 2)
+    T = Matrix{Float64}(I, m, m)
+    println("Change of basis matrix dims: $(m)")
+    println("Dimensions of alternate Wedderburn basis: $(n)")
+    T[1:n, 1:n] = collect(Q)
 
     # apply change of basis on bilinear form (M = psds * blockdiag(x) * psds^T)
-    Ms = []
-    for (i, psd) in enumerate(psds)
-        M_i = get_vec_from_lt_mat(psd * X_i[i] * psd')
-        push!(Ms, M_i)
-    end
-
-    # convert to vectorized form
-    M = vcat(Ms...)
-    return M
+    X = T * X * T'
+    println("YES")
+    return X
 end
 
 # ------------------------------------------------------------------------
@@ -328,4 +279,5 @@ export wedderburn_decompose
 export get_constraint
 export get_mat_dim
 export get_mat_from_lt_vec
+export get_value_in_original_basis
 export get_vec_from_lt_mat
