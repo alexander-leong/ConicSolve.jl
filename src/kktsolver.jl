@@ -28,6 +28,16 @@ K = \\begin{bmatrix}
     A  & 0     & 0     \\\\
     G  & 0     & -W^TW \\\\
 \\end{bmatrix}
+
+K * \\begin{bmatrix}
+    x \\\\
+    y \\\\
+    z \\\\
+\\end{bmatrix} = \\begin{bmatrix}
+    c \\\\
+    b \\\\
+    h \\\\
+\\end{bmatrix}
 ```
 """
 mutable struct KKTSystem

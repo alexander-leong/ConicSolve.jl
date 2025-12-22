@@ -21,13 +21,18 @@ mutable struct PSDCone <: Cone
     λ
     _svd
 
-    function PSDCone(p)
+    function PSDCone()
         cone_psd = new()
-        cone_psd.p = p
         function svdfact(A)
             return svd(A, alg=LinearAlgebra.QRIteration())
         end
         cone_psd._svd = svdfact
+        return cone_psd
+    end
+
+    function PSDCone(p)
+        cone_psd = PSDCone()
+        cone_psd.p = p
         return cone_psd
     end
 end

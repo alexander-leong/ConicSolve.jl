@@ -7,12 +7,14 @@ file in the root directory
 
 module ConicSolve
 
+include("arrayutils.jl")
 include("./cones/cone.jl")
 include("./cones/nonneg.jl")
 include("./cones/psdcone.jl")
 include("./cones/soc.jl")
 include("./models/sdp.jl")
 include("./models/sos.jl")
+include("./models/sos_sg.jl")
 include("solver.jl")
 include("MOI_wrapper/MOI_wrapper.jl")
 include("utils.jl")

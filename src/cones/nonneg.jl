@@ -18,6 +18,10 @@ mutable struct NonNegativeOrthant <: Cone
     z
     λ
 
+    function NonNegativeOrthant()
+        return new()
+    end
+
     function NonNegativeOrthant(p)
         cone_nonneg = new()
         cone_nonneg.p = p

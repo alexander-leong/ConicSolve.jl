@@ -48,14 +48,13 @@ function get_A(min_G)
 end
 
 function get_G(G)
-    G = Matrix{Float64}(I, (length(G), length(G)))
     G = [G'; -G']
     return G
 end
 
 function get_c(min_G)
     c_vec = zeros((size(min_G)[2], size(min_G)[2]))
-    c_vec[1, :] .= 1
+    c_vec[1, :] .= -1
     c = vec(c_vec)
     return c
 end
@@ -90,7 +89,7 @@ function get_qp(G, min_G)
     cones::Vector{Cone} = []
     n = size(G)[1]
     push!(cones, NonNegativeOrthant(n))
-    cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
+    cone_qp = ConeQP(A, G, P, b, c, h, cones)
     return cone_qp
 end
 

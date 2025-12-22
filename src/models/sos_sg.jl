@@ -73,27 +73,34 @@ function invariant_constraint!(
     return M_orb
 end
 
-function set_A_i!(A, Mπs, equality_constraint_indices)
+function set_A_i!(program, Mπs, b, equality_constraint_indices)
     j = 0
     m = 0
     for Mπs_j in Mπs
         idx = j
 		idx += 1
         j += Int(size(Mπs_j, 1) * (size(Mπs_j, 1) + 1) / 2)
+        
+        if (idx, j) in keys(equality_constraint_indices)
+            cone = equality_constraint_indices[(idx, j)]
+        else
+            p = size(Mπs_j, 1)
+            cone = add_variable(program, PSDCone(), p)
+            equality_constraint_indices[(idx, j)] = cone
+        end
 		
         # Omit generated redundant PSD constraint
         if iszero(Mπs_j)
             continue
         end
+        
         # get vectorized lower triangular entries of Mπs[i]
         Mπ_vec = get_lt_vals(Mπs_j)
 
-        a = get_constraint(A, Mπ_vec, idx)
-        A = vcat(A, a)
-        push!(equality_constraint_indices, (idx, j))
+        add_affine_constraint(program, cone, Mπ_vec, b)
         m += 1
     end
-    return A, m
+    return m
 end
 
 function get_num_vars(Mπs_j, j)
@@ -111,16 +118,19 @@ function get_constraint(A, Mπ_vec, idx)
 end
 
 # rank revealing qr, remove redundant constraints
-function rrqr(A, b, tol=1e-9)
+function rrqr(program, tol=1e-9)
+    A = program.A
     F = qr(A', ColumnNorm())
     # get list of row indices where diagonal elements of R satisfy tol
     inds = [i for (i, v) in enumerate(diag(F.R)) if abs(v) >= tol]
     inds = [x[2] for x in findall(val -> val == 1, F.P'[inds, :])]
     # reduced A, b
-    rA = A[inds, :]
-    rb = b[inds]
-    return rA, rb, inds
+    # rA = A[inds, :]
+    # rb = b[inds]
+    return inds
 end
+
+export rrqr
 
 function get_monomial_basis(f, deg)
 	vars = DynamicPolynomials.variables(f)
@@ -129,16 +139,7 @@ function get_monomial_basis(f, deg)
     return basis, basis_half
 end
 
-# TODO: remove unsupported logic
-# NOTE: SymbolicWedderburn.jl does not currently support other basis types
-function get_chebyshev_basis(f, deg)
-    basis, basis_half = get_monomial_basis(f, deg)
-    basis = basis_covering_monomials(ChebyshevBasis, basis)
-    basis_half = basis_covering_monomials(ChebyshevBasis, basis_half)
-    return basis.polynomials, basis_half.polynomials
-end
-
-function wedderburn_decompose(f, n, x, num_additional_vars=0)
+function wedderburn_decompose(program, f, n, x, num_additional_vars=0)
     deg = DynamicPolynomials.maxdegree(f)
     println("Polynomial function f has degree: $(deg)")
     println("Symmetric Group $(n)")
@@ -161,35 +162,19 @@ function wedderburn_decompose(f, n, x, num_additional_vars=0)
     psds = SymbolicWedderburn.direct_summands(wedderburn)
     num_vars = Int(sum([size(psd, 1) * (size(psd, 1) + 1) / 2 for psd in psds]))
 
-    # FIXME: relocate this logic outside
-    U_map = Dict()
-    # Matrix A defining equality constraints in Ax = b
     total_num_vars = num_vars + num_additional_vars
-    A = Matrix{Float64}(undef, 0, Int(total_num_vars))
-    # Vector b defining equality constraints in Ax = b
-    b = []
+    program.A = Matrix{Float64}(undef, 0, Int(total_num_vars))
 
     basis_constraints = SymbolicWedderburn.basis(wedderburn)
     C = DynamicPolynomials.coefficients(f, basis_constraints)
     
     ivs = SymbolicWedderburn.invariant_vectors(wedderburn)
-    equality_constraint_indices = []
+    equality_constraint_indices = Dict()
     for iv in ivs
         c = dot(C, iv)
 	    M_orb_ivc = invariant_constraint!(M_orb, M, iv)
         Mπs = SymbolicWedderburn.diagonalize(M_orb_ivc, wedderburn)
-        A, m = set_A_i!(A, Mπs, equality_constraint_indices)
-        b = append!(b, fill(c, m))
-        # println("End of Invariant Vector")
-    end
-    println("Length of A: $(size(A, 1))")
-    println("Length of Equality Inds: $(length(equality_constraint_indices))")
-
-    A, b, inds = rrqr(A, b)
-    equality_constraint_indices = equality_constraint_indices[inds]
-    cn = cond(A)
-    if cn > 1e2
-        println("WARNING: Poorly conditioned equality matrix defined! (condition number = $(cn))")
+        set_A_i!(program, Mπs, c, equality_constraint_indices)
     end
 
     sos_symmetric_group = SOS_Symmetric_Group(
@@ -200,9 +185,9 @@ function wedderburn_decompose(f, n, x, num_additional_vars=0)
         equality_constraint_indices,
         f
     )
-    println("Num rows in A: $(size(A, 1))")
+    
     println("End of decompose, returning...")
-    return A, b, num_vars, psds, sos_symmetric_group
+    return num_vars, psds, sos_symmetric_group
 end
 
 function get_mat_vec_len(psds)
@@ -253,26 +238,26 @@ end
 #  0 ... 0   0 ... 0  vec(Mπ_n)
 # The vector "b" is just dot(C, iv)
 # ------------------------------------------------------------------------
-function sos_to_qp(f, n, x)
-    A, Mπs, b = decompose(f, n, x)
-    num_vars = Int(sum([size(x, 1) * (size(x, 1) + 1)/2 for x in Mπs]))
-    c = zeros(num_vars + 2)
-    # The vector "c" is [0 ... 0 -1]
-    c = set_objective(c)
-    G = Matrix{Float64}(I, num_vars + 2, num_vars + 2)
-    h = zeros(num_vars + 2)
-    P = zeros((num_vars + 2, num_vars + 2))
+# function sos_to_qp(f, n, x)
+#     A, Mπs, b = decompose(f, n, x)
+#     num_vars = Int(sum([size(x, 1) * (size(x, 1) + 1)/2 for x in Mπs]))
+#     c = zeros(num_vars + 2)
+#     # The vector "c" is [0 ... 0 -1]
+#     c = set_objective(c)
+#     G = Matrix{Float64}(I, num_vars + 2, num_vars + 2)
+#     h = zeros(num_vars + 2)
+#     P = zeros((num_vars + 2, num_vars + 2))
 
-    # construct problem
-    cones::Vector{Cone} = []
-    for x in Mπs
-        p = size(x, 1)
-        push!(cones, PSDCone(p))
-    end
-    push!(cones, NonNegativeOrthant(2))
-    cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
-    return cone_qp
-end
+#     # construct problem
+#     cones::Vector{Cone} = []
+#     for x in Mπs
+#         p = size(x, 1)
+#         push!(cones, PSDCone(p))
+#     end
+#     push!(cones, NonNegativeOrthant(2))
+#     cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
+#     return cone_qp
+# end
 
 export SOS_Symmetric_Group
 export wedderburn_decompose

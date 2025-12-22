@@ -267,6 +267,89 @@ function get_triangular_idx(A_idx, mask)
     return b_idx
 end
 
+function get_lt_idx(n)
+    i = 1
+    inds = []
+    for l in 1:n
+        for k in i:n
+            push!(inds, CartesianIndex((k, l)))
+        end
+        i += 1
+    end
+    return inds
+end
+
+function get_lt_vals(A)
+    n = size(A, 1)
+    inds = get_lt_idx(n)
+    lt_vals = map(i -> A[i], inds)
+    return lt_vals
+end
+
+function get_mat_from_lt_vec(v, N)
+    V = zeros((N, N))
+    i = 1
+    for n in 1:N
+        for m in n:N
+            V[m, n] = v[i]
+            V[n, m] = v[i]
+            i += 1
+        end
+    end
+    return V
+end
+
+function get_mat_from_lt_vec(v)
+    N = get_mat_dim(v)
+    V = get_mat_from_lt_vec(v, N)
+    return V
+end
+
+function get_vec_from_lt_mat(A)
+    v = []
+    N = size(A, 1)
+    for n in 1:N
+        for m in n:N
+            push!(v, A[m, n])
+        end
+    end
+    return v
+end
+
+function get_mat_dim(v)
+    i = 1
+    while i < length(v)
+        if (i * (i + 1)) / 2 == length(v)
+            return i
+        end
+        i += 1
+    end
+    return 1
+end
+
+function get_lt_vec_len(X)
+    n = Int(size(X, 1) * (size(X, 1) + 1) / 2)
+    return n
+end
+
+function block_diagonalize_from_mats(Xs, inds, n)
+    X = zeros((n, n))
+    for i in 1:length(inds)-1
+        i_n = inds[i]+1:inds[i+1]
+        X[i_n, i_n] = Xs[i]
+    end
+    return X
+end
+
+function block_diagonalize_from_lt_vecs(lt_vecs)
+    n_i = [get_mat_dim(lt_vec) for lt_vec in lt_vecs]
+    X_i = [get_mat_from_lt_vec(lt_vecs[i], n_i[i]) for i in eachindex(lt_vecs)]
+    inds = [0, cumsum(n_i)...]
+    n = sum(n_i)
+    X = block_diagonalize_from_mats(X_i, inds, n)
+    return X
+end
+
 export svec
 export mat
 export mat_to_lower_vec
@@ -277,3 +360,11 @@ export get_mask
 export get_off_diagonal_idx
 export get_diagonal_idx
 export get_triangular_idx
+export get_lt_idx
+export get_lt_vals
+export get_mat_from_lt_vec
+export get_vec_from_lt_mat
+export get_mat_dim
+export get_lt_vec_len
+export block_diagonalize_from_mats
+export block_diagonalize_from_lt_vecs

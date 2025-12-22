@@ -7,9 +7,10 @@ file in the root directory
 
 """see CVXOPT Vandenberghe 2010 for Cone QP definition"""
 
-include("./arrayutils.jl")
+# include("./arrayutils.jl")
 include("./debug.jl")
 include("./kktsolver.jl")
+include("./program.jl")
 
 using LinearAlgebra
 using Logging
@@ -50,182 +51,6 @@ end
 
 export parse
 
-"""
-    ConeQP
-
-Represents a Conic Quadratic Program.
-"""
-mutable struct ConeQP{T<:Number, U<:Number, V<:Number}
-    A::Union{AbstractArray{Float64}, Nothing}
-    G::Union{AbstractArray{V}, Nothing}
-    KKT_b::AbstractVector{V}
-    KKT_x::AbstractVector{V}
-    P::Union{AbstractArray{Float64}, Nothing}
-    b::Union{AbstractVector{Float64}, Nothing}
-    c::Union{AbstractVector{U}, Nothing}
-    h::Union{AbstractVector{Float64}, Nothing}
-    s::AbstractVector{V}
-    z::AbstractVector{V}
-    α::Float64
-    
-    cones::Vector{Cone}
-    cones_inds::Vector{Int}
-    cones_p::Vector{Int}
-
-    inds_c::UnitRange{Int64}
-    inds_b::UnitRange{Int64}
-    inds_h::UnitRange{Int64}
-
-    is_feasibility_problem::Bool
-    kktsystem::KKTSystem
-
-    """
-        ConeQP(A, G, P, b, c, h, cones)
-    
-    Constructs a new Conic Quadratic Program of the form:
-    ```math
-    \\begin{aligned}
-    \\text{minimize}\\qquad &
-    (1/2)x^TPx + c^Tx \\\\
-    \\text{subject to}\\qquad &
-    Gx + s = h \\\\
-    & Ax = b \\\\
-    & s \\succeq 0
-    \\end{aligned}
-    ```
-    
-    # Parameters:
-    * `A`: The block matrix A in the KKT matrix
-    * `G`: The block matrix G in the KKT matrix
-    * `P`: The block matrix P in the KKT matrix
-    * `b`: The vector b corresponding to ``Ax = b``
-    * `c`: The vector c corresponding to ``c^Tx``
-    * `h`: The vector h corresponding to ``Gx + s = h``
-    * `cones`: A vector of cone types
-
-    The cones vector is an ordered vector corresponding to the
-    conic constraints defined by:
-    ```math
-    \\begin{aligned}
-    Gx + s = h \\\\
-    s \\succeq_K 0
-    \\end{aligned}
-    ```
-    where ``\\succeq_K`` is a generalized inequality with respect to cone K.
-
-    NOTE: The K is sometimes dropped to simplify notation.
-    """
-    function ConeQP{T, U, V}(A::Union{AbstractArray{Float64}, Nothing},
-                    G::Union{AbstractArray{T}, Nothing},
-                    P::Union{AbstractArray{Float64}, Nothing},
-                    b::Union{AbstractArray{Float64}, Nothing},
-                    c::Union{AbstractArray{U}, Nothing},
-                    h::Union{AbstractArray{Float64}, Nothing},
-                    cones::Vector{Cone}) where {T<:Number, U<:Number, V<:Number}
-        cone_qp = new{T, U, V}()
-        cone_qp.A = A
-        cone_qp.G = G
-        cone_qp.P = P
-        cone_qp.b = b
-        cone_qp.c = c
-        cone_qp.h = h
-        cone_qp.cones = cones
-        return cone_qp
-    end
-    
-    """
-        ConeQP(G, P, c, h, cones)
-    
-    Constructs a new Conic Quadratic Program of the form:
-    ```math
-    \\begin{aligned}
-    \\text{minimize}\\qquad &
-    (1/2)x^TPx + c^Tx \\\\
-    \\text{subject to}\\qquad &
-    Gx + s = h \\\\
-    & s \\succeq 0
-    \\end{aligned}
-    ```
-    
-    # Parameters:
-    * `G`: The block matrix G in the KKT matrix
-    * `P`: The block matrix P in the KKT matrix
-    * `c`: The vector c corresponding to ``c^Tx``
-    * `h`: The vector h corresponding to ``Gx + s = h``
-    * `cones`: A vector of cone types
-    """
-    function ConeQP(G::AbstractArray{Float64},
-                    P::AbstractArray{Float64},
-                    c::AbstractArray{Float64},
-                    h::AbstractArray{Float64},
-                    cones::Vector{Cone})
-        cone_qp = ConeQP(undef, G, P, undef, c, h, cones)
-        return cone_qp
-    end
-
-    function ConeQP()
-        cone_qp = new{Float64, Float64, Float64}()
-        cone_qp.A = nothing
-        cone_qp.G = nothing
-        cone_qp.P = nothing
-        cone_qp.b = nothing
-        cone_qp.c = nothing
-        cone_qp.h = nothing
-        return cone_qp
-    end
-end
-
-function check_program(cone_qp::ConeQP)
-    A = cone_qp.A
-    G = cone_qp.G
-    P = cone_qp.P
-    b = cone_qp.b
-    c = cone_qp.c
-    h = cone_qp.h
-    if A != undef && !isnothing(A)
-        if size(A)[2] != size(G)[2]
-            throw(DimensionMismatch("Number of columns of A does not equal G"))
-        end
-    end
-    if P != undef && !isnothing(P)
-        if size(G)[2] != size(P)[2]
-            throw(DimensionMismatch("Number of columns of G does not equal P"))
-        end
-        if size(P)[1] != size(P)[2]
-            throw(DimensionMismatch("P is not square"))
-        end
-    end
-    cone_qp.inds_c = 1:size(G)[2]
-    if b != undef && !isnothing(b)
-        if size(A)[1] != length(b)
-            throw(DimensionMismatch("Number of rows of A does not equal b"))
-        elseif size(A)[2] != length(c)
-            throw(DimensionMismatch("Number of columns of A does not equal c"))
-        else
-            cone_qp.inds_b = cone_qp.inds_c[end]+1:cone_qp.inds_c[end]+size(A)[1]
-            cone_qp.inds_h = cone_qp.inds_b[end]+1:cone_qp.inds_b[end]+size(G)[1]
-        end
-    else
-        cone_qp.inds_h = cone_qp.inds_c[end]+1:cone_qp.inds_c[end]+size(G)[1]
-    end
-    if size(G)[1] != length(h)
-        throw(DimensionMismatch("Number of rows of G does not equal h"))
-    end
-    cone_qp.is_feasibility_problem = (P != undef && !isnothing(P) && P != zeros(size(P)) || c != zeros(size(G)[2]))
-end
-
-function get_variable_primal(program::ConeQP)
-    x = program.KKT_x[program.inds_c]
-    s = program.s
-    return (x, s)
-end
-
-function get_constraint_dual(program::ConeQP)
-    y = program.KKT_x[program.inds_b]
-    z = program.KKT_x[program.inds_h]
-    return (y, z)
-end
-
 mutable struct SolverStatus
     current_iteration::Int32
     duality_gap::AbstractArray{Float64}
@@ -233,6 +58,7 @@ mutable struct SolverStatus
     residual_x::AbstractArray{Float64}
     residual_y::AbstractArray{Float64}
     residual_z::AbstractArray{Float64}
+    step_size::AbstractArray{Float64}
     status_termination::Union{TerminationStatus, Nothing}
 
     function SolverStatus()
@@ -243,6 +69,7 @@ mutable struct SolverStatus
         status.residual_x = []
         status.residual_y = []
         status.residual_z = []
+        status.step_size = []
         status.status_termination = OPTIMIZE_NOT_CALLED
         return status
     end
@@ -403,7 +230,7 @@ function print_graphic()
 end
 
 function print_header()
-    print_graphic()
+    # print_graphic()
     println("Alexander Leong, 2025")
     println("Version 0.0.3")
     println(repeat("-", 64))
@@ -419,6 +246,16 @@ function run_solver(solver::Solver, is_init=false, check=false, kwargs...)
         print_header()
         @info "Optimize called"
         BLAS.set_num_threads(solver.num_threads)
+        if !isnothing(solver.cb_before_iteration)
+            solver.cb_before_iteration(kwargs...)
+        end
+
+        # initialize cones
+        program = solver.program
+        if program.cones_inds == []
+            set_cones_inds(program)
+        end
+
         initialize!(solver, is_init)
         if check == true
             check_preconditions(solver)
@@ -486,9 +323,9 @@ function optimize_main!(solver::Solver, kwargs...)
     total_time_elapsed = 0
     @info "Executing main optimization loop"
     while true
-        if !isnothing(solver.cb_before_iteration)
-            solver.cb_before_iteration(kwargs...)
-        end
+        # if !isnothing(solver.cb_before_iteration)
+        #     solver.cb_before_iteration(kwargs...)
+        # end
         i = solver.current_iteration
         itr_time_elapsed = @elapsed begin
         program = solver.program
@@ -570,7 +407,7 @@ function log_iteration_status(i::Int32,
     "Cent. Res. (z)" norm(r_z);
     "Gap" norm(g);
     "Primal Obj." pri_obj;]
-    # TODO
+    # TODO logging frequency and other options
     n = 100
     print_table(data, i, n)
 end
@@ -655,6 +492,11 @@ function initialize_solver!(solver::Solver)
     return 0
 end
 
+function update_affine_constraints(program::ConeQP, solver::Solver)
+    program.kktsystem.A = program.A
+    solver.program = program
+end
+
 function warm_start!(solver::Solver)
     program = solver.program
     update_cones(program)
@@ -673,13 +515,6 @@ function initialize!(solver::Solver, is_init=false)
         program.KKT_b = vcat([-program.c, program.b, program.h]...)
     else
         program.KKT_b = vcat([-program.c, program.h]...)
-    end
-
-    # initialize cones
-    program.cones_inds = [0]
-    for (_, cone) in enumerate(program.cones)
-        ind = program.cones_inds[end] + get_size(cone)
-        push!(program.cones_inds, ind)
     end
 
     if is_init
@@ -706,6 +541,18 @@ function check_feasibility(solver::Solver,
     return is_feasible
 end
 
+function check_progress(solver::Solver, tol::Float64)
+    status = solver.status
+    if length(status.step_size) > 0 &&
+    status.step_size[end] < tol
+        if length(status.duality_gap) > 1 &&
+        abs(status.duality_gap[end] - status.duality_gap[end-1]) < tol
+            @info "Slow progress..."
+            status.status_termination = SLOW_PROGRESS
+        end
+    end
+end
+
 """
     is_optimal(solver, gap_atol, gap_rtol, tol)
 
@@ -724,6 +571,10 @@ function is_optimal(solver::Solver,
     program = solver.program
     s, z = program.s, program.z
     r2 = check_duality_gap(s, z, gap_atol, gap_rtol)
+    if r2 == false
+        # check if convergence has stalled
+        check_progress(solver, tol)
+    end
     result = r1 && r2
     if !result
         return false
@@ -902,11 +753,8 @@ function get_iterative_combined_search_direction(solver::Solver,
     return Δs, Δs_scaled, Δz_scaled, Δx
 end
 
-function update_solver_status(solver::Solver)
+function evaluate_optimality_conditions(solver::Solver)
     i = solver.current_iteration
-    gap_atol = solver.tol_gap_abs
-    gap_rtol = solver.tol_gap_rel
-    tol = solver.tol_optimality
     program = solver.program
     x = program.KKT_x
     s = @view program.s[:]
@@ -932,9 +780,7 @@ function update_solver_status(solver::Solver)
         m = m + degree(cone)
     end
     μ = s' * x[z_inds] / m
-
-    # evaluate stopping criteria
-    result = is_optimal(solver, gap_atol, gap_rtol, tol)
+    
     pri_obj = solver.obj_primal_value
     log_iteration_status(i, r_x, r_y, r_z, μ, pri_obj)
 
@@ -946,8 +792,23 @@ function update_solver_status(solver::Solver)
     push!(status.residual_x, norm(r_x))
     push!(status.residual_y, norm(r_y))
     push!(status.residual_z, norm(r_z))
+    push!(status.step_size, program.α)
     update_dual_status(solver)
     update_primal_status(solver)
+
+    return r, μ
+end
+
+function update_solver_status(solver::Solver)
+    r, μ = evaluate_optimality_conditions(solver)
+
+    # evaluate stopping criteria
+    gap_atol = solver.tol_gap_abs
+    gap_rtol = solver.tol_gap_rel
+    tol = solver.tol_optimality
+    println("got here")
+    result = is_optimal(solver, gap_atol, gap_rtol, tol)
+    println("got here")
 
     return result, r, μ
 end
@@ -1036,7 +897,7 @@ function get_central_path(solver::Solver,
     end
     # end
     # println(get_step_size_elapsed_time)
-    @debug "Step size: " α
+    @info "Step size: " α
     @debug "η: " η
     @debug "Centering parameter: " σ
     
@@ -1070,7 +931,7 @@ function get_central_path(solver::Solver,
     # update step size
     program.α = get_step_size(program, Δs_scaled, Δz_scaled, 0.99)
     @debug "Solution after step ok?: " is_convex_cone(program, program.α)
-    @debug "Updated Step size: " * string(program.α)
+    @info "Updated Step size: " * string(program.α)
 
     # update iterates with updated α
     update_iterates(program, Δs, Δx)
@@ -1089,7 +950,12 @@ end
 
 export ConeQP
 export Solver
+export TerminationStatus
 
+export evaluate_optimality_conditions
 export get_solution
 export get_solver_status
+export initialize!
+export is_optimal
 export run_solver
+export update_equality_constraints

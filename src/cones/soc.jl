@@ -21,6 +21,10 @@ mutable struct SecondOrderCone <: Cone
     z
     λ
 
+    function SecondOrderCone()
+        return new()
+    end
+
     function SecondOrderCone(p)
         cone_socp = new()
         J = Matrix{Float64}(I, p, p)
