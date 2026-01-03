@@ -10,6 +10,12 @@ include("./kktsolvers/qrchol.jl")
 
 using SparseArrays
 
+mutable struct KKTIterate
+    KKT_x
+    s
+    z
+end
+
 """
     KKTSystem
 
@@ -54,7 +60,11 @@ mutable struct KKTSystem
         kktmat = new()
         kktmat.A = @view A[:, :]
         kktmat.G = @view G[:, :]
-        kktmat.P = P
+        if isnothing(P)
+            kktmat.P = P
+        else
+            kktmat.P = @view P[:, :]
+        end
         if length(size(A)) == 2 && A == isdiag(A)
             kktmat.Q, kktmat.R = Matrix(I, size(A)[1], size(A)[2]), A
         else

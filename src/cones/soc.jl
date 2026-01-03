@@ -53,6 +53,8 @@ function get_size(cone::SecondOrderCone)
     return cone.p
 end
 
+export get_size
+
 function update(cone::SecondOrderCone, s, z)
     cone.s = s
     cone.z = z
@@ -241,6 +243,10 @@ function get_d_s(cone::SecondOrderCone, s_scaled, z_scaled, b_z, γ, λ, μ, σ)
     d_s = circ(cone, -λ, λ) - γ * circ(cone, s_scaled, z_scaled) + σ * μ * get_e(cone)
     b_z = b_z - get_weighted_mat(cone, diamond(λ, d_s))
     return b_z
+end
+
+function is_convex_cone(cone::SecondOrderCone, x, etol=1e-3)
+    return norm(x[2:end]) - etol <= x[1]
 end
 
 export SecondOrderCone

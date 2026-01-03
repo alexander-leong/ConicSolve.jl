@@ -7,13 +7,30 @@ file in the root directory
 
 mutable struct ConeConstraint
     cone::Cone
-    lhs::AbstractArray{Float64}
+    lhs::VecOrMat{Float64}
     rhs::Union{AbstractArray{Float64}, Float64}
+
+    bound_constraints::Vector{ConeConstraint}
+    function ConeConstraint(cone::Cone, lhs::VecOrMat{Float64}, rhs::Union{AbstractArray{Float64}, Float64})
+        constraint = new()
+        constraint.cone = cone
+        constraint.lhs = lhs
+        constraint.rhs = rhs
+        constraint.bound_constraints = []
+        return constraint
+    end
+end
+
+export ConeConstraint
+
+mutable struct PrimalObjective
+    cone::Cone
+    P::AbstractArray{Float64}
+    c::AbstractArray{Float64}
 end
 
 mutable struct ConeQP_IR
-    obj::Vector{Float64}
-    quad_obj::Matrix{Float64}
+    obj::Vector{PrimalObjective}
     affine_constraints::Vector{ConeConstraint}
     inequality_constraints::Vector{ConeConstraint}
 
@@ -22,7 +39,6 @@ mutable struct ConeQP_IR
     function ConeQP_IR()
         ir = new()
         ir.obj = []
-        ir.quad_obj = Matrix{Float64}(undef, 0, 0)
         ir.affine_constraints = []
         ir.inequality_constraints = []
         return ir
@@ -59,6 +75,8 @@ mutable struct ConeQP
     kktsystem::KKTSystem
 
     program_ir::ConeQP_IR
+
+    inv_P::Union{AbstractArray{Float64}, Nothing}
 
     """
         ConeQP(A, G, P, b, c, h, cones)
@@ -108,6 +126,10 @@ mutable struct ConeQP
         cone_qp.A = A
         cone_qp.G = G
         cone_qp.P = P
+        if all(qp.P .== 0) == false
+            F = svd(qp.P)
+            cone_qp.inv_P = F.Vt' * diagm(inv.(F.S)) * F.U'
+        end
         cone_qp.b = b
         cone_qp.c = c
         cone_qp.h = h
@@ -179,8 +201,20 @@ function find_inequality_constraints(program::ConeQP, predicate)
     return find_constraints(ir.inequality_constraints, predicate)
 end
 
+function find_affine_constraints_by_cone(program::ConeQP, cone::Cone)
+    ir = program.program_ir
+    return [constraint for constraint in ir.affine_constraints if objectid(constraint.cone) == objectid(cone)]
+end
+
+function find_inequality_constraints_by_cone(program::ConeQP, cone::Cone)
+    ir = program.program_ir
+    return [constraint for constraint in ir.inequality_constraints if objectid(constraint.cone) == objectid(cone)]
+end
+
 export find_affine_constraints
 export find_inequality_constraints
+export find_affine_constraints_by_cone
+export find_inequality_constraints_by_cone
 
 function remove_affine_constraints_by_indices(program::ConeQP, indices)
     ir = program.program_ir
@@ -199,87 +233,162 @@ end
 export remove_affine_constraints_by_indices
 export remove_inequality_constraints_by_indices
 
-function get_constraint(program::ConeQP, cone::Cone, v::Vector{Float64})
+function get_indices_of_constraint(program::ConeQP, cone::Cone)
     ir = program.program_ir
     k = findfirst(id -> id == objectid(cone), ir.ids_cones)
     inds = program.cones_inds[k]+1:program.cones_inds[k+1]
+    return inds
+end
+
+export get_indices_of_constraint
+
+function get_elements_by_constraint_inds(program::ConeQP, cone::Cone, v::Vector{Float64})
+    inds = get_indices_of_constraint(program, cone)
     return v[inds]
 end
 
+function get_elements_by_constraint_inds(program::ConeQP, cone::Cone, V::Matrix{Float64})
+    inds = get_indices_of_constraint(program, cone)
+    return V[inds, :]
+end
+
+export get_elements_by_constraint_inds
+
 function get_constraint(program::ConeQP, constraint::ConeConstraint, v::Vector{Float64})
-    ir = program.program_ir
-    cone = constraint.cone
-    k = findfirst(id -> id == objectid(cone), ir.ids_cones)
-    inds = program.cones_inds[k]+1:program.cones_inds[k+1]
+    inds = get_indices_of_constraint(program, constraint.cone)
     v[inds] = constraint.lhs
     return v
 end
 
+function get_constraint(program::ConeQP, constraint::ConeConstraint, v::Matrix{Float64})
+    inds = get_indices_of_constraint(program, constraint.cone)
+    v[:, inds] = constraint.lhs
+    return v
+end
+
+function get_constraint_indices(program::ConeQP, constraints::Vector{ConeConstraint})
+    n = program.cones_inds[end]
+    function num_constraints(constraint)
+        if length(size(constraint.lhs)) == 1
+            return 1
+        end
+        return size(constraint.lhs, 1)
+    end
+    num_rows = [num_constraints(constraint) for constraint in constraints]
+    inds = [0, cumsum(num_rows)...]
+    m = sum(num_rows)
+    println("num constraints $(length(constraints))")
+    return m, n, inds, num_rows
+end
+
 export get_constraint
 
-function get_constraint_matrix(program::ConeQP, constraints::Vector{ConeConstraint})
-    n = program.cones_inds[end]
-    m = length(constraints)
-    V = zeros((m, n))
+function get_constraint_matrix(program::ConeQP, constraints::Vector{ConeConstraint}, V=[], affine=false)
+    m, n, inds, num_rows = get_constraint_indices(program, constraints)
+    if V == []
+        V = zeros((m, n))
+    end
     for (i, constraint) in enumerate(constraints)
-        v = zeros(n)
-        v = get_constraint(program, constraint, v)
-        V[i, :] = v
+        if num_rows[i] == 1 # TODO refactor
+            v = get_constraint(program, constraint, zeros(n))
+            V[i, :] = v
+            set_bound_constraints!(program, constraint, V[i, :])
+        else
+            v = get_constraint(program, constraint, zeros((num_rows[i], n)))
+            V[inds[i]+1:inds[i+1], :] = v
+            set_bound_constraints!(program, constraint, V[inds[i]+1:inds[i+1], :])
+        end
     end
     return V
 end
 
-function get_affine_constraint_matrix(program::ConeQP)
+function get_affine_constraint_matrix(program::ConeQP, allocated=false)
     ir = program.program_ir
-    A = get_constraint_matrix(program, ir.affine_constraints)
-    b = [constraint.rhs for constraint in ir.affine_constraints]
+    if allocated == false
+        A = get_constraint_matrix(program, ir.affine_constraints, [], true)
+    else
+        A = get_constraint_matrix(program, ir.affine_constraints, program.A, true)
+    end
+    b = vcat([constraint.rhs for constraint in ir.affine_constraints]...)
     return A, b
 end
 
-function get_inequality_constraint_matrix(program::ConeQP)
+function get_inequality_constraint_matrix(program::ConeQP, allocated=false)
     ir = program.program_ir
-    n = length(program.c)
-    G = -Matrix{Float64}(I, n, n)
-    h = zeros(n)
-    if length(ir.inequality_constraints) > 0
-        G = vcat(G, get_constraint_matrix(program, ir.inequality_constraints))
-        h = vcat(h, [constraint.rhs for constraint in ir.inequality_constraints])
+    # if allocated == false
+    #     println("number of ir ineq cons: $(length(ir.inequality_constraints))")
+    #     for cone in program.cones
+    #         n = get_size(cone)
+    #         G = -Matrix{Float64}(I, n, n)
+    #         h = zeros(n)
+    #         add_inequality_constraint(program, cone, G, h)
+    #         println("size of G $(size(G))")
+    #     end
+    #     G = get_constraint_matrix(program, ir.inequality_constraints)
+    # else
+    #     G = get_constraint_matrix(program, ir.inequality_constraints)
+    # end
+    for cone in program.cones
+        n = get_size(cone)
+        G = -Matrix{Float64}(I, n, n)
+        h = zeros(n)
+        add_inequality_constraint(program, cone, G, h)
     end
+    G = get_constraint_matrix(program, ir.inequality_constraints)
+    h = vcat([constraint.rhs for constraint in ir.inequality_constraints]...)
     return G, h
 end
 
-function set_objective(program::ConeQP, P::Matrix{Float64}, c::Vector{Float64}=[])
+function get_primal_objective(program::ConeQP)
     ir = program.program_ir
-    ir.quad_obj = P
+    n = program.cones_inds[end]
+    P = zeros((n, n))
+    c = zeros(n)
+    for obj in ir.obj
+        cone = obj.cone
+        k = findfirst(id -> id == objectid(cone), ir.ids_cones)
+        inds = program.cones_inds[k]+1:program.cones_inds[k+1]
+        P[inds, inds] = obj.P
+        c[inds] = obj.c
+    end
+    return P, c
+end
+
+function set_objective(program::ConeQP, cone::Cone, P::Matrix{Float64}, c::Vector{Float64}=[])
+    ir = program.program_ir
     if c == []
         n = size(P, 1)
         c = zeros(n)
     end
-    ir.obj = c
+    primal_obj = PrimalObjective(cone, P, c)
+    push!(ir.obj, primal_obj)
 end
 
-function set_objective(program::ConeQP, c::Vector{Float64})
+function set_objective(program::ConeQP, cone::Cone, c::Vector{Float64})
     ir = program.program_ir
     n = length(c)
-    ir.quad_obj = zeros((n, n))
-    ir.obj = c
+    P = zeros((n, n))
+    primal_obj = PrimalObjective(cone, P, c)
+    push!(ir.obj, primal_obj)
 end
 
-function build_program(program::ConeQP)
+export set_objective
+
+function build_program(program::ConeQP, allocated=false)
     set_cones_inds(program)
     
     ir = program.program_ir
     ir.ids_cones = [objectid(cone) for cone in program.cones]
-    P = ir.quad_obj
-    c = ir.obj
-    program.P = P
-    program.c = c
+    P, c = get_primal_objective(program)
 
     A, b = get_affine_constraint_matrix(program)
-    G, h = get_inequality_constraint_matrix(program)
+    println("Condition number of equality constraint matrix: $(cond(A))")
+    G, h = get_inequality_constraint_matrix(program, allocated)
     program.A = A
     program.G = G
+    program.P = P
     program.b = b
+    program.c = c
     program.h = h
     return program
 end
@@ -292,19 +401,65 @@ function add_variable(program::ConeQP, cone::Cone, p::Int64)
     return cone
 end
 
+export add_variable
+
+function update_program(program::ConeQP)
+    set_cones_inds(program)
+    ir = program.program_ir
+    program.P = ir.quad_obj
+    program.c = ir.obj
+    program.A, program.b = get_affine_constraint_matrix(program, true)
+    program.G, program.h = get_inequality_constraint_matrix(program, true)
+    program.A = @view program.A[:, 1:program.cones_inds[end]]
+    program.G = @view program.G[:, 1:program.cones_inds[end]]
+    return program
+end
+
+export update_program
+
+# function remove_variable(program::ConeQP, cone::Cone)
+# end
+
+# export remove_variable
+
+function set_cone_constraint(constraint::ConeConstraint, cone::Cone, lhs::VecOrMat{Float64})
+    bound_constraint = ConeConstraint(cone, lhs, 0.)
+    push!(constraint.bound_constraints, bound_constraint)
+end
+
+function set_bound_constraints!(program::ConeQP, constraint::ConeConstraint, V)
+    for bound_constraint in constraint.bound_constraints
+        inds = get_indices_of_constraint(program, bound_constraint.cone)
+        V[:, inds] = bound_constraint.lhs
+    end
+end
+
 function add_affine_constraint(program::ConeQP, cone::Cone, lhs::AbstractArray{Float64}, rhs::Union{AbstractArray{Float64}, Float64})
     ir = program.program_ir
     push!(ir.affine_constraints, ConeConstraint(cone, lhs, rhs))
+    return ir.affine_constraints[end]
+end
+
+function set_affine_constraint(constraint::ConeConstraint, cone::Cone, lhs::AbstractArray{Float64})
+    set_cone_constraint(constraint, cone, lhs)
 end
 
 function add_inequality_constraint(program::ConeQP, cone::Cone, lhs::AbstractArray{Float64}, rhs::Union{AbstractArray{Float64}, Float64})
     ir = program.program_ir
     push!(ir.inequality_constraints, ConeConstraint(cone, lhs, rhs))
+    return ir.inequality_constraints[end]
+end
+
+function set_inequality_constraint(constraint::ConeConstraint, cone::Cone, lhs::AbstractArray{Float64})
+    set_cone_constraint(constraint, cone, lhs)
 end
 
 export add_variable
 export add_affine_constraint
 export add_inequality_constraint
+
+export set_affine_constraint
+export set_inequality_constraint
 
 function check_program(cone_qp::ConeQP)
     A = cone_qp.A
@@ -343,6 +498,7 @@ function check_program(cone_qp::ConeQP)
         throw(DimensionMismatch("Number of rows of G does not equal h"))
     end
     cone_qp.is_feasibility_problem = (P != undef && !isnothing(P) && P != zeros(size(P)) || c != zeros(size(G)[2]))
+    # TODO test total cone size matches expected num. constraints
 end
 
 function get_variable_primal(program::ConeQP)
@@ -359,10 +515,8 @@ end
 
 function set_cones_inds(program::ConeQP)
     program.cones_inds = [0]
-    println("set cones inds")
     for (_, cone) in enumerate(program.cones)
         ind = program.cones_inds[end] + get_size(cone)
-        # println(ind)
         push!(program.cones_inds, ind)
     end
 end

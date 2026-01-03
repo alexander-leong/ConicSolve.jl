@@ -51,6 +51,8 @@ function get_size(cone::PSDCone)
     return Int((cone.p * (cone.p + 1)) / 2)
 end
 
+export get_size
+
 function get_inv_weighted_mat(cone::PSDCone,
                               V::AbstractArray{T},
                               transpose=false) where T <: Number
@@ -173,6 +175,10 @@ function get_d_s(cone::PSDCone, s_scaled, z_scaled, b_z, γ, λ, μ, σ)
     dₛ = circ(cone, -λ, λ) - γ * circ(cone, s_scaled, z_scaled) + σ * μ * get_e(cone)
     b_z = b_z - get_weighted_mat(cone, diamond(λ, dₛ), true)
     return b_z
+end
+
+function is_convex_cone(cone::PSDCone, x, etol=1e-3)
+    return all(eigen(mat(x)).values .>= -etol)
 end
 
 export PSDCone

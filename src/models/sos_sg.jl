@@ -17,6 +17,7 @@ using SymbolicWedderburn
 
 include("../arrayutils.jl")
 
+# TODO remove equality_constraint_indices!
 mutable struct SOS_Symmetric_Group
     basis
     basis_half
@@ -108,7 +109,7 @@ function get_num_vars(Mπs_j, j)
     return j
 end
 
-function get_constraint(A, Mπ_vec, idx)
+function get_constraint(A::AbstractArray{Float64}, Mπ_vec::AbstractArray{Float64}, idx::Int32)
     num_vars = size(A, 2)
     a = zeros((1, num_vars))
     j = idx + length(Mπ_vec) - 1
@@ -194,36 +195,6 @@ function get_mat_vec_len(psds)
     # number of elements in each lower triangular psd matrix
     n_i = [get_lt_vec_len(X) for X in psds]
     return n_i
-end
-
-function get_value_in_original_basis(summands, x)
-    # TODO useless for now
-    # performs change of basis for an endomorphism
-    # see pg.118 of MO13-Blekherman-Parrilo-Thomas
-    
-    # get block diagonal form from solution vector x
-    n_i = get_mat_vec_len(summands)
-    inds = [0, cumsum(n_i)...]
-    xs = []
-    for i in 1:length(inds)-1
-        push!(xs, x[inds[i]+1:inds[i+1]])
-    end
-    X = block_diagonalize_from_lt_vecs(xs)
-    println("Dimensions of X: $(size(X))")
-
-    # construct change of basis matrix T
-    Q = qr(vcat(summands...)).Q
-    m = size(summands[1], 2)
-    n = size(Q, 2)
-    T = Matrix{Float64}(I, m, m)
-    println("Change of basis matrix dims: $(m)")
-    println("Dimensions of alternate Wedderburn basis: $(n)")
-    T[1:n, 1:n] = collect(Q)
-
-    # apply change of basis on bilinear form (M = psds * blockdiag(x) * psds^T)
-    X = T * X * T'
-    println("YES")
-    return X
 end
 
 # ------------------------------------------------------------------------
