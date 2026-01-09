@@ -15,8 +15,6 @@ using StarAlgebras
 using SparseArrays
 using SymbolicWedderburn
 
-include("../arrayutils.jl")
-
 # TODO remove equality_constraint_indices!
 mutable struct SOS_Symmetric_Group
     basis
@@ -118,21 +116,6 @@ function get_constraint(A::AbstractArray{Float64}, Mπ_vec::AbstractArray{Float6
     return a
 end
 
-# rank revealing qr, remove redundant constraints
-function rrqr(program, tol=1e-9)
-    A = program.A
-    F = qr(A', ColumnNorm())
-    # get list of row indices where diagonal elements of R satisfy tol
-    inds = [i for (i, v) in enumerate(diag(F.R)) if abs(v) >= tol]
-    inds = [x[2] for x in findall(val -> val == 1, F.P'[inds, :])]
-    # reduced A, b
-    # rA = A[inds, :]
-    # rb = b[inds]
-    return inds
-end
-
-export rrqr
-
 function get_monomial_basis(f, deg)
 	vars = DynamicPolynomials.variables(f)
 	basis = DynamicPolynomials.monomials(vars, 0:deg) # basis_constraints
@@ -142,6 +125,7 @@ end
 
 function wedderburn_decompose(program, f, n, x, num_additional_vars=0)
     deg = DynamicPolynomials.maxdegree(f)
+    println("### STEP 1: SYMMETRY REDUCTION ###")
     println("Polynomial function f has degree: $(deg)")
     println("Symmetric Group $(n)")
     basis, basis_half = get_monomial_basis(f, deg)

@@ -26,6 +26,13 @@ Order = [:type, :function]
 Pages = ["sos.jl"]
 ```
 
+## Program API
+```@autodocs
+Modules = [ConicSolve]
+Order = [:type, :function]
+Pages = ["program.jl"]
+```
+
 ## Solver
 
 ```@autodocs

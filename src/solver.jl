@@ -15,6 +15,7 @@ include("./program.jl")
 using DataStructures
 using LinearAlgebra
 using Logging
+using OperatorScaling
 using SparseArrays
 
 @enum ResultStatus begin
@@ -120,6 +121,7 @@ Possible values for kktsolve are `conjgrad`, `minres` and `qrchol`. `qrchol` is 
 * `limit_soln`: The 2-norm difference between the current and previous estimates
 * `max_iterations`: The maximum number of iterations before the solver terminates
 * `num_threads`: The number of threads used on the CPU to perform certain BLAS and parallelized operations
+* `preconditioner`: Scales the constraints during presolve using Ruiz `ruiz` equilibration or `none` by default.
 * `time_limit_sec`: The maximum number of seconds elapsed before the solver terminates after the current iteration
 * `tol_gap_abs`: The absolute gap tolerance
 * `tol_gap_rel`: The relative gap tolerance
@@ -140,6 +142,11 @@ mutable struct Solver
     num_threads::Union{Int8, Nothing}
     obj_dual_value::Float64
     obj_primal_value::Float64
+    presolve_equilibration_column_scaling::AbstractArray{Float64}
+    presolve_equilibration_max_iter::Int
+    presolve_regularization_method
+    presolve_regularization_tol::Float32
+    presolve_scaling_method
     program::ConeQP
     solve_time
     status::SolverStatus
@@ -186,6 +193,10 @@ mutable struct Solver
         solver.limit_soln = limit_soln
         solver.max_iterations = max_iterations
         solver.num_threads = 1
+        solver.presolve_equilibration_max_iter = 100
+        solver.presolve_regularization_method = "none"
+        solver.presolve_regularization_tol = 1e-9
+        solver.presolve_scaling_method = preconditioner
         solver.solve_time = 0
         solver.status = SolverStatus()
         solver.status_dual = NO_SOLUTION
@@ -247,6 +258,10 @@ Get the solution to the optimization problem.
 """
 function get_solution(solver::Solver)
     x_inds = solver.program.inds_c
+    if solver.presolve_scaling_method == "ruiz"
+        C = solver.presolve_equilibration_column_scaling
+        return C * solver.program.KKT_x[x_inds]
+    end
     return solver.program.KKT_x[x_inds]
 end
 
@@ -278,12 +293,6 @@ function run_solver(solver::Solver, is_init=false, check=false, kwargs...)
         # if !isnothing(solver.cb_before_iteration)
             # solver.cb_before_iteration(kwargs...)
         # end
-
-        # initialize cones
-        program = solver.program
-        if program.cones_inds == []
-            set_cones_inds(program)
-        end
 
         initialize!(solver, is_init)
         if check == true
@@ -331,14 +340,14 @@ function check_preconditions(solver::Solver)
         @assert false
     end
     if !isnothing(qp.A)
-        if rank([qp.P qp.A' qp.G']) < size(qp.P)[1]
+        if rank([qp.P qp.A' qp.G']) < length(qp.c)
             solver.status.status_termination = INFEASIBLE
             @error "There are some constraints in the problem that are either
             redundant or inconsistent."
             @assert false
         end
     else
-        if rank([qp.P qp.G']) < size(qp.P)[1]
+        if rank([qp.P qp.G']) < length(qp.c)
             solver.status.status_termination = INFEASIBLE
             @error "There are some constraints in the problem that are either
             redundant or inconsistent."
@@ -548,15 +557,57 @@ function warm_start!(solver::Solver)
     update_cones(program)
 end
 
+function apply_equilibration(program::ConeQP, max_iter::Int=100)
+    @info "Performing Ruiz Equilibration"
+    A_scaled, D1, D2 = equilibrate(program.A, max_iter=max_iter)
+    b_scaled = D1 * program.b
+    program.A = A_scaled
+    program.b = b_scaled
+    return D2
+end
+
+# rank revealing qr, remove redundant constraints
+function rrqr(program::ConeQP, tol=1e-9)
+    A = program.A
+    F = qr(A', ColumnNorm())
+    # get list of row indices where diagonal elements of R satisfy tol
+    inds = [i for (i, v) in enumerate(diag(F.R)) if abs(v) >= tol]
+    inds = [x[2] for x in findall(val -> val == 1, F.P'[inds, :])]
+    return inds
+end
+
+export rrqr
+
+function apply_regularization(program::ConeQP, tol=1e-9)
+    @info "Performing RRQR regularization"
+    inds = rrqr(program, tol)
+    remove_affine_constraints_by_indices(program, inds)
+end
+
+export apply_regularization
+
 function initialize!(solver::Solver, is_init=false)
     solver.status.status_termination = INFEASIBLE
     log_solver_parameters(solver)
     program = solver.program
+    
+    if solver.presolve_regularization_method == "rrqr"
+        apply_regularization(program, solver.presolve_regularization_tol)
+    elseif solver.presolve_regularization_method != "none"
+        @warn "Unrecognized regularization method, applying no regularization"
+    end
+
+    if solver.presolve_scaling_method == "ruiz"
+        D2 = apply_equilibration(program, solver.presolve_equilibration_max_iter)
+        solver.presolve_equilibration_column_scaling = D2
+    elseif solver.presolve_scaling_method != "none"
+        @warn "Unrecognized preconditioning method, applying no preconditioning"
+    end
+
     A = program.A
     G = program.G
     P = program.P
-
-    program.kktsystem = !isnothing(program.A) ? KKTSystem(A, G, P) : KKTSystem(G, P)
+    program.kktsystem = !isnothing(A) ? KKTSystem(A, G, P) : KKTSystem(G, P)
     if !isnothing(program.b)
         program.KKT_b = vcat([-program.c, program.b, program.h]...)
     else
@@ -596,6 +647,7 @@ function check_infeasibility(solver::Solver,
         inds = [get_indices_of_constraint(program, cone) for cone in program.cones]
         y_is_relint = [is_convex_cone(cone, A[:, inds[i]]' * y) for (i, cone) in enumerate(program.cones)]
         y_in_cone = all(y_is_relint) || true
+        println(y_in_cone && b' * y - tol < 0)
         return y_in_cone && b' * y - tol < 0
     end
 end

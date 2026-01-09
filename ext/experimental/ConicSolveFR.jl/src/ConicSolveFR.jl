@@ -72,7 +72,6 @@ end
 
 function expose_face(solver::ConicSolve.Solver, cone::Cone)
     ConicSolve.run_solver(solver)
-    return nothing, nothing
     program = solver.program
     A = program.A
     y_inds = program.inds_b
@@ -105,6 +104,7 @@ function reduce_cone(solver::ConicSolve.Solver, cone::Cone, tol=1e-6)
         # step 1
         println("Expose face")
         s, z = expose_face(solver, cone)
+        println("Got face!")
         return nothing
 
         status = get_solver_status(solver)
@@ -179,6 +179,7 @@ end
 function reduce_cone_program(orig_solver::ConicSolve.Solver, cone::Cone)
     out_program = get_subproblem(orig_solver.program, cone)
     solver = ConicSolve.Solver(out_program)
+    solver.presolve_scaling_method = "ruiz"
     println("Subproblem constructed")
     U = reduce_cone(solver, cone)
     return
@@ -193,7 +194,9 @@ function run_fr_solver(solver::ConicSolve.Solver)
     problem = FacialReduction()
     problem.solver = solver
     in_program = solver.program
+    apply_regularization(in_program)
 
+    println("### STEP 3: FACE REDUCTION ###")
     for (i, cone) in enumerate(in_program.cones)
         println("Performing face reduction on cone $(i)")
         reduce_cone_program(solver, cone)
