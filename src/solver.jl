@@ -54,6 +54,7 @@ end
 export parse
 
 mutable struct SolverStatus
+    best_iterate::Int32
     current_iteration::Int32
     kkt_iterate::CircularBuffer{KKTIterate}
 
@@ -68,6 +69,7 @@ mutable struct SolverStatus
 
     function SolverStatus()
         status = new()
+        status.best_iterate = 0
         status.current_iteration = 0
         buffer_size = 5
         status.kkt_iterate = CircularBuffer{KKTIterate}(buffer_size)
@@ -87,10 +89,10 @@ function get_best_iterate(status::SolverStatus)
     rx_weight = 1
     ry_weight = 1
     rz_weight = 1
-    gap_weight = 1
+    gap_weight = 16
     solution_scores = []
     for (i, _) in enumerate(status.kkt_iterate)
-        offset = length(status.kkt_iterate) - i
+        offset = length(status.kkt_iterate) - i + 1
         push!(solution_scores,
         rx_weight * status.residual_x[end-offset] +
         ry_weight * status.residual_y[end-offset] +
@@ -98,9 +100,9 @@ function get_best_iterate(status::SolverStatus)
         gap_weight * status.duality_gap[end-offset])
     end
     best_idx = argmin(solution_scores)
-    i = status.current_iteration - best_idx + 1
-    @info "The primal/dual variables correspond to iterate $(i)"
-    return status.kkt_iterate[best_idx]
+    i = status.current_iteration - best_idx
+    @info "The primal/dual variables correspond to iterate $(best_idx)"
+    return i, status.kkt_iterate[best_idx]
 end
 
 """
@@ -138,6 +140,7 @@ mutable struct Solver
     limit_obj::Union{Float64, Nothing}
     limit_soln::Union{Float64, Nothing}
     log_level
+    logger
     max_iterations::Union{Int8, Nothing}
     num_threads::Union{Int8, Nothing}
     obj_dual_value::Float64
@@ -170,9 +173,9 @@ mutable struct Solver
                     preconditioner="none",
                     limit_obj=-Inf,
                     limit_soln=0,
-                    tol_gap_abs=1e-3,
-                    tol_gap_rel=1e-3,
-                    tol_optimality=1e-3,
+                    tol_gap_abs=1e-2,
+                    tol_gap_rel=1e-2,
+                    tol_optimality=1e-2,
                     max_iterations=100,
                     time_limit_sec=1e6,
                     η=0.0,
@@ -191,6 +194,7 @@ mutable struct Solver
         end
         solver.limit_obj = limit_obj
         solver.limit_soln = limit_soln
+        solver.logger = ConsoleLogger(stdout, Logging.Info)
         solver.max_iterations = max_iterations
         solver.num_threads = 1
         solver.presolve_equilibration_max_iter = 100
@@ -210,6 +214,12 @@ mutable struct Solver
         return solver
     end
 end
+
+function suppress_logging(solver::Solver)
+    solver.logger = NullLogger()
+end
+
+export suppress_logging
 
 """
     get_solver_status(solver)
@@ -287,18 +297,20 @@ Executes the solver on the optimization problem.
 """
 function run_solver(solver::Solver, is_init=false, check=false, kwargs...)
     try
-        print_header()
-        @info "Optimize called"
-        BLAS.set_num_threads(solver.num_threads)
-        # if !isnothing(solver.cb_before_iteration)
-            # solver.cb_before_iteration(kwargs...)
-        # end
+        with_logger(solver.logger) do
+            print_header()
+            @info "Optimize called"
+            BLAS.set_num_threads(solver.num_threads)
+            # if !isnothing(solver.cb_before_iteration)
+                # solver.cb_before_iteration(kwargs...)
+            # end
 
-        initialize!(solver, is_init)
-        if check == true
-            check_preconditions(solver)
+            initialize!(solver, is_init)
+            if check == true
+                check_preconditions(solver)
+            end
+            result = optimize_main!(solver, kwargs...)
         end
-        result = optimize_main!(solver, kwargs...)
         return result
     catch err
         if isa(err, LAPACKException)
@@ -310,7 +322,9 @@ function run_solver(solver::Solver, is_init=false, check=false, kwargs...)
             "Primal objective value: " * string(solver.obj_primal_value) * "\n" *
             "Number of iterations: " * string(solver.current_iteration - 1) * "\n" *
             "Time elapsed: " * string(solver.solve_time))
-        @info log_msg
+        with_logger(solver.logger) do
+            @info log_msg
+        end
         return solver.status
     end
 end
@@ -397,26 +411,27 @@ function optimize_main!(solver::Solver, kwargs...)
     end
 
     # update program with best in-memory solution
-    kkt_iterate = get_best_iterate(solver.status)
+    best_idx, kkt_iterate = get_best_iterate(solver.status)
+    solver.status.best_iterate = best_idx
     program.KKT_x = kkt_iterate.KKT_x
     program.s = kkt_iterate.s
     program.z = kkt_iterate.z
     return status
 end
 
-function print_table(data, i, n=100, pad=15)
-    if i % n == 1
+function print_table(data, header=false, n=100, pad=15)
+    if header == true
         row = "| "
         for val in eachrow(data)
             row *= lpad(val[:][1], pad, " ") * " |"
         end
-        println(row)
+        @info row
     end
     row = "| "
     for val in eachrow(data)
         row *= lpad(round(val[:][end], sigdigits=6), pad, " ") * " |"
     end
-    println(row)
+    @info row
 end
 
 function log_solver_parameters(solver::Solver)
@@ -435,30 +450,27 @@ function log_solver_parameters(solver::Solver)
         lpad("Tolerance optimality: ", pad, " ") solver.tol_optimality;
         ]
     for item in eachrow(data)
-        println("$(item[1]) $(item[2])")
+        @info "$(item[1]) $(item[2])"
     end
 end
 
-function log_iteration_status(i::Int32,
-                              r_x::AbstractArray,
-                              r_y::AbstractArray,
-                              r_z::AbstractArray,
-                              g::T,
-                              pri_obj,
-                              dual_obj,
-                              α) where T <: Number
-    data = ["Iter." i;
-    "Dual Res." norm(r_x);
-    "Primal Res." norm(r_y);
-    "Cent. Res." norm(r_z);
-    "Dual. Gap" norm(g);
-    "Primal Obj." pri_obj;
-    "Dual Obj." dual_obj;
-    "Step size" α;]
+function log_iteration_status(solver::Solver, header=false, i=0)
+    status = solver.status
+    data = ["Iter." status.current_iteration;
+    "Dual Res." status.residual_x[end-i];
+    "Primal Res." status.residual_y[end-i];
+    "Cent. Res." status.residual_z[end-i];
+    "Dual. Gap" status.duality_gap[end-i];
+    "Primal Obj." status.primal_obj[end-i];
+    "Dual Obj." status.dual_obj[end-i];
+    "Step size" status.step_size[end-i];]
     # TODO logging frequency and other options
     n = 100
-    print_table(data, i, n)
+    print_header = status.current_iteration % n == 1 || header
+    print_table(data, print_header, n)
 end
+
+export log_iteration_status
 
 function update_cones(program::ConeQP,
                       s=nothing,
@@ -624,7 +636,7 @@ end
 function check_duality_gap(μ,
                            atol::Float64=1e-3,
                            rtol::Float64=1e-3)
-    return within_tol(atol, rtol, μ)
+    return μ <= atol
 end
 
 function check_feasibility(solver::Solver,
@@ -637,7 +649,7 @@ function check_feasibility(solver::Solver,
 end
 
 function check_infeasibility(solver::Solver,
-                             tol::Float64=1e-3)
+                             tol::Float64=1e-6)
     program = solver.program
     y_inds = program.inds_b
     A = program.A
@@ -645,9 +657,9 @@ function check_infeasibility(solver::Solver,
     y = program.KKT_x[y_inds]
     if norm(y) > 1/tol
         inds = [get_indices_of_constraint(program, cone) for cone in program.cones]
-        y_is_relint = [is_convex_cone(cone, A[:, inds[i]]' * y) for (i, cone) in enumerate(program.cones)]
+        y_is_relint = [is_convex_cone(cone, A[:, inds[i]]' * y, tol) for (i, cone) in enumerate(program.cones)]
         y_in_cone = all(y_is_relint) || true
-        println(y_in_cone && b' * y - tol < 0)
+        println("infeas: $(y_in_cone && b' * y - tol < 0)")
         return y_in_cone && b' * y - tol < 0
     end
 end
@@ -679,9 +691,12 @@ function is_optimal(solver::Solver,
                     gap_atol::Float64,
                     gap_rtol::Float64,
                     tol::Float64)
+    status = solver.status
     r1 = check_feasibility(solver, tol)
+    println("feas: $(r1)")
 
     r2 = check_duality_gap(μ, gap_atol, gap_rtol)
+    println("gap: $(r2)")
 
     # stopping criteria based on
     # https://www.seas.ucla.edu/~vandenbe/ee236a/lectures/mpc.pdf
@@ -690,7 +705,6 @@ function is_optimal(solver::Solver,
         return true
     end
 
-    status = solver.status
     if abs(solver.obj_primal_value) <= solver.limit_obj
         status.status_termination = OBJECTIVE_LIMIT
         return true
@@ -775,6 +789,7 @@ function evaluate_residual(qp::ConeQP,
     r_z = qp.s + qp.G * x - qp.h
     r[x_inds] = r_x
     r[z_inds] = r_z
+    println("b'y: $(qp.b' * Δx[y_inds])")
     return r
 end
 
@@ -918,8 +933,6 @@ function evaluate_optimality_conditions(solver::Solver)
     gap_rtol = solver.tol_gap_rel
     tol = solver.tol_optimality
 
-    result = is_optimal(solver, μ, gap_atol, gap_rtol, tol)
-
     # save status
     status = solver.status
     status.current_iteration = i
@@ -930,14 +943,20 @@ function evaluate_optimality_conditions(solver::Solver)
     push!(status.residual_y, norm(r_y))
     push!(status.residual_z, norm(r_z))
     push!(status.step_size, program.α)
+
     dual_res = update_dual_status(solver)
     primal_res = update_primal_status(solver)
     if dual_res && primal_res
         status.status_termination = ALMOST_OPTIMAL
     end
 
-    # TODO only log if making progress
-    log_iteration_status(i, r_x, r_y, r_z, μ, pri_obj, dual_obj, program.α)
+    result = is_optimal(solver, μ, gap_atol, gap_rtol, tol)
+
+    if dual_obj - pri_obj > 1e-1
+        result = true
+    end
+
+    log_iteration_status(solver)
 
     return result, r, μ
 end

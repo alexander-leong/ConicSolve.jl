@@ -183,8 +183,8 @@ mutable struct ConeQP
         cone_qp.A = A
         cone_qp.G = G
         cone_qp.P = P
-        if all(qp.P .== 0) == false
-            F = svd(qp.P)
+        if all(cone_qp.P .== 0) == false
+            F = svd(cone_qp.P)
             cone_qp.inv_P = F.Vt' * diagm(inv.(F.S)) * F.U'
         end
         cone_qp.b = b
@@ -379,6 +379,8 @@ function get_constraint_matrix(program::ConeQP, constraints::Vector{ConeConstrai
     end
     return V
 end
+
+export get_constraint_matrix
 
 function get_affine_constraint_matrix(program::ConeQP, allocated=false)
     ir = program.program_ir
@@ -596,6 +598,8 @@ function add_affine_constraint(program::ConeQP, cone::Cone, lhs::AbstractArray{F
     push!(ir._all_affine_constraints, constraint)
     return ir.affine_constraints[end]
 end
+
+export add_affine_constraint
 
 function set_affine_constraint(constraint::ConeConstraint, cone::Cone, lhs::AbstractArray{Float64})
     set_cone_constraint(constraint, cone, lhs)

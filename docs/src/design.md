@@ -18,4 +18,48 @@ You may need to install further dependencies to run the specific examples. This 
 
 The high-level component diagram (see below) can serve as a guide for users and developers working with the project codebase.
 
-![Component Diagram](./assets/conic_solve.png)
+```mermaid
+block
+  columns 1
+  
+  block:SolverInterface
+  columns 1
+  PD["Problem Definition (User API)"]
+  IR["Intermediate Representation
+  In-memory data representation of objective, constraints, variables
+  maps user specified optimization problem to solver API Cone QP standard form"]
+  end
+  
+  block:Modelling
+  columns 2
+  FR["Face Reduction
+  (ConicSolveFR.jl)"]
+  SR["Symmetry Reduction
+  (SymbolicWedderburn.jl)"]
+  GPU["GPU Acceleration
+  (CuConicSolve.jl)"]
+  end
+  
+  block:Core
+  columns 1
+  block:Modules
+  columns 2
+  block:Preprocess
+  columns 2
+  RRQR["RRQR Regularization"]
+  Ruiz["Ruiz Equilibration
+  (OperatorScaling.jl)"]
+  end
+  SymCones["Symmetric Self-Dual Cones
+  Nonnegative Orthant
+  Second Order Cone
+  Positive Semidefinite Cone"]
+  end
+  IPM["Symmetric Self Dual
+  Primal-Dual Interior Point Methods Cone Solver"]
+  Disk3["KKT Linear Solver - 
+  QR and Cholesky Decomposition"]
+  LinearAlgebra["Linear Algebra -
+  Julia Standard Library"]
+  end
+```

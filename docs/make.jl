@@ -1,4 +1,5 @@
 using Documenter
+using DocumenterMermaid
 
 push!(LOAD_PATH,"../src/")
 using ConicSolve

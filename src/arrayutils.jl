@@ -299,14 +299,14 @@ function get_mat_from_lt_vec(v, N)
     return V
 end
 
-function get_mat_from_lt_vec(v)
+function get_mat_from_lt_vec(v::Vector{Float64})
     N = get_mat_dim(v)
     V = get_mat_from_lt_vec(v, N)
     return V
 end
 
-function get_vec_from_lt_mat(A)
-    v = []
+function get_vec_from_lt_mat(A::Matrix{Float64})
+    v::Vector{Float64} = []
     N = size(A, 1)
     for n in 1:N
         for m in n:N

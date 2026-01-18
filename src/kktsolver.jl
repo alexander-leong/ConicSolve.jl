@@ -145,8 +145,8 @@ function get_solve_args(program)
 end
 
 function qp_solve(solver,
-                  G_scaled::AbstractArray{<:Number},
-                  inv_W_b_z::AbstractArray{<:Number},
+                  G_scaled::AbstractArray{Float64},
+                  inv_W_b_z::AbstractArray{Float64},
                   solve=qr_chol_solve)
     # page 498, 618 Boyd and Vandenberghe
     # page 29, coneprog.pdf
