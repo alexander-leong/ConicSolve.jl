@@ -88,7 +88,7 @@ function log_best_iterate(solver::ConicSolve.Solver, i)
     y, _ = get_constraint_dual(program)
     b_y = program.b' * y
     additional_data = ["b'y" b_y]
-    log_iteration_status(solver, i == 1, status.best_iterate, additional_data)
+    log_iteration_status(status, i == 1, status.best_iterate, additional_data)
 end
 
 function reduce_cone(solver::ConicSolve.Solver, cone::Cone, tol=1e-1)

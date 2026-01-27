@@ -7,116 +7,14 @@ file in the root directory
 
 """see CVXOPT Vandenberghe 2010 for Cone QP definition"""
 
-# include("./arrayutils.jl")
 include("./debug.jl")
 include("./kktsolver.jl")
 include("./program.jl")
+include("./status.jl")
 
-using DataStructures
 using LinearAlgebra
 using Logging
-using OperatorScaling
 using SparseArrays
-
-@enum ResultStatus begin
-    NO_SOLUTION
-    FEASIBLE_POINT
-    INFEASIBLE_POINT
-end
-
-@enum TerminationStatus begin
-    ALMOST_OPTIMAL
-    DUAL_INFEASIBLE
-    INFEASIBLE
-    ITERATION_LIMIT
-    NORM_LIMIT
-    NUMERICAL_ERROR
-    OBJECTIVE_LIMIT
-    OPTIMIZE_NOT_CALLED
-    OTHER_ERROR
-    OTHER_LIMIT
-    OPTIMAL
-    SLOW_PROGRESS
-    TIME_LIMIT
-end
-
-@enum Device begin
-    CPU
-    GPU
-end
-
-export Device, CPU, GPU
-
-@enum IterativeRefinementTriggerMode begin
-    ITERATIVE_REFINEMENT_DEFAULT_TRIGGER_MODE
-    ITERATIVE_REFINEMENT_PER_ITERATION
-end
-
-export IterativeRefinementTriggerMode, ITERATIVE_REFINEMENT_DEFAULT_TRIGGER_MODE, ITERATIVE_REFINEMENT_PER_ITERATION
-
-function Base.parse(::Type{Device}, value)
-    return value == "CPU" ? CPU : GPU
-end
-
-export parse
-
-mutable struct SolverStatus
-    best_iterate::Int32
-    current_iteration::Int32
-    current_residual_x::AbstractArray{Float64}
-    current_residual_y::AbstractArray{Float64}
-    current_residual_z::AbstractArray{Float64}
-    kkt_iterate::CircularBuffer{KKTIterate}
-
-    duality_gap::AbstractArray{Float64}
-    dual_obj::AbstractArray{Float64}
-    primal_obj::AbstractArray{Float64}
-    residual_x::AbstractArray{Float64}
-    residual_y::AbstractArray{Float64}
-    residual_z::AbstractArray{Float64}
-    step_size::AbstractArray{Float64}
-    status_termination::Union{TerminationStatus, Nothing}
-
-    function SolverStatus()
-        status = new()
-        status.best_iterate = 0
-        status.current_iteration = 0
-        status.current_residual_x = []
-        status.current_residual_y = []
-        status.current_residual_z = []
-        buffer_size = 5
-        status.kkt_iterate = CircularBuffer{KKTIterate}(buffer_size)
-        status.duality_gap = []
-        status.dual_obj = []
-        status.primal_obj = []
-        status.residual_x = []
-        status.residual_y = []
-        status.residual_z = []
-        status.step_size = []
-        status.status_termination = OPTIMIZE_NOT_CALLED
-        return status
-    end
-end
-
-function get_best_iterate(status::SolverStatus)
-    rx_weight = 1
-    ry_weight = 1
-    rz_weight = 1
-    gap_weight = 16
-    solution_scores = []
-    for (i, _) in enumerate(status.kkt_iterate)
-        offset = length(status.kkt_iterate) - i + 1
-        push!(solution_scores,
-        rx_weight * status.residual_x[end-offset] +
-        ry_weight * status.residual_y[end-offset] +
-        rz_weight * status.residual_z[end-offset] +
-        gap_weight * status.duality_gap[end-offset])
-    end
-    best_idx = argmin(solution_scores)
-    i = status.current_iteration - best_idx
-    @info "The primal/dual variables correspond to iterate $(best_idx)"
-    return i, status.kkt_iterate[best_idx]
-end
 
 """
     Solver
@@ -292,21 +190,6 @@ function get_solution(solver::Solver)
     return solver.program.KKT_x[x_inds]
 end
 
-function print_graphic()
-    fp = open("graphic.txt", "r")
-    words = readlines(fp, keep=true)
-    for word in words
-        print(word)
-    end
-end
-
-function print_header()
-    # print_graphic()
-    println("Alexander Leong, 2025")
-    println("Version 0.0.3")
-    println(repeat("-", 144))
-end
-
 """
     run_solver(solver)
 
@@ -365,30 +248,6 @@ function get_objective(P::Union{AbstractArray{Float64}, Nothing},
     return obj
 end
 
-function check_preconditions(solver::Solver)
-    qp = solver.program
-    if !isnothing(qp.A) && rank(qp.A) < size(qp.A)[1]
-        solver.status.status_termination = INFEASIBLE
-        @error "Values of A are inconsistent or redundant."
-        @assert false
-    end
-    if !isnothing(qp.A)
-        if rank([qp.P qp.A' qp.G']) < length(qp.c)
-            solver.status.status_termination = INFEASIBLE
-            @error "There are some constraints in the problem that are either
-            redundant or inconsistent."
-            @assert false
-        end
-    else
-        if rank([qp.P qp.G']) < length(qp.c)
-            solver.status.status_termination = INFEASIBLE
-            @error "There are some constraints in the problem that are either
-            redundant or inconsistent."
-            @assert false
-        end
-    end
-end
-
 function optimize_main!(solver::Solver, kwargs...)
     # using Conic QP (Primal-Dual Interior Point) method
     # given strictly feasible x, t := t^(0) > 0, mu > 1, tolerance eps > 0.
@@ -438,29 +297,6 @@ function optimize_main!(solver::Solver, kwargs...)
     return solver.status
 end
 
-function print_table(data, header=false, n=100, pad=15)
-    if header == true
-        row = ""
-        for (i, val) in enumerate(eachrow(data))
-            if i == 1
-                row *= lpad(val[:][1], 5, " ") * " |"
-                continue
-            end
-            row *= lpad(val[:][1], pad, " ") * " |"
-        end
-        @info row
-    end
-    row = ""
-    for (i, val) in enumerate(eachrow(data))
-        if i == 1
-            row *= lpad(val[:][end], 5, " ") * " |"
-            continue
-        end
-        row *= lpad(round(val[:][end], sigdigits=6), pad, " ") * " |"
-    end
-    @info row
-end
-
 function log_solver_parameters(solver::Solver)
     pad = 32
     data = [lpad("Solver parameters", pad, " ") "";
@@ -482,27 +318,6 @@ function log_solver_parameters(solver::Solver)
         @info "$(item[1]) $(item[2])"
     end
 end
-
-function log_iteration_status(solver::Solver, header=false, i=0, additional_data=[])
-    status = solver.status
-    data = ["Iter." status.current_iteration;
-    "Dual Res." status.residual_x[end-i];
-    "Primal Res." status.residual_y[end-i];
-    "Cent. Res." status.residual_z[end-i];
-    "Dual. Gap" status.duality_gap[end-i];
-    "Primal Obj." status.primal_obj[end-i];
-    "Dual Obj." status.dual_obj[end-i];
-    "Step size" status.step_size[end-i];]
-    if additional_data != []
-        data = vcat(data, additional_data)
-    end
-    # TODO logging frequency and other options
-    n = 100
-    print_header = status.current_iteration % n == 1 || header
-    print_table(data, print_header, n)
-end
-
-export log_iteration_status
 
 function update_cones(program::ConeQP,
                       s=nothing,
@@ -531,27 +346,6 @@ end
 function alpha_d(program::ConeQP)
     α_vec = map(k -> alpha_d(k), program.cones)
     return -minimum(α_vec)
-end
-
-function alpha_p(program::ConeQP, z)
-    cones = program.cones
-    α_vec = map(cone -> alpha_p(cone, get_elements_by_constraint_inds(program, cone, z)), cones)
-    return -α_vec[argmax(abs.(α_vec))]
-end
-
-function alpha_d(program::ConeQP, z)
-    cones = program.cones
-    α_vec = map(cone -> alpha_d(cone, get_elements_by_constraint_inds(program, cone, z)), cones)
-    return -minimum(α_vec)
-end
-
-function get_num_constraints(program::ConeQP)
-    num_constraints = 0
-    if !isnothing(program.A)
-        num_constraints += size(program.A)[1]
-    end
-    num_constraints += size(program.G)[1]
-    return num_constraints
 end
 
 function initialize_solver!(solver::Solver)
@@ -595,52 +389,10 @@ function initialize_solver!(solver::Solver)
     return 0
 end
 
-function update_affine_constraints(program::ConeQP)
-    program.kktsystem.A = program.A
-    program.kktsystem.b = program.b
-end
-
-function update_inequality_constraints(program::ConeQP)
-    program.kktsystem.G = program.G
-    program.kktsystem.h = program.h
-end
-
-export update_affine_constraints
-export update_inequality_constraints
-
 function warm_start!(solver::Solver)
     program = solver.program
     update_cones(program)
 end
-
-function apply_equilibration(program::ConeQP, max_iter::Int=100)
-    @info "Performing Ruiz Equilibration"
-    A_scaled, D1, D2 = equilibrate(program.A, max_iter=max_iter)
-    b_scaled = D1 * program.b
-    program.A = A_scaled
-    program.b = b_scaled
-    return D2
-end
-
-# rank revealing qr, remove redundant constraints
-function rrqr(program::ConeQP, tol=1e-9)
-    A = program.A
-    F = qr(A', ColumnNorm())
-    # get list of row indices where diagonal elements of R satisfy tol
-    inds = [i for (i, v) in enumerate(diag(F.R)) if abs(v) >= tol]
-    inds = [x[2] for x in findall(val -> val == 1, F.P'[inds, :])]
-    return inds
-end
-
-export rrqr
-
-function apply_regularization(program::ConeQP, tol=1e-9)
-    @info "Performing RRQR regularization"
-    inds = rrqr(program, tol)
-    remove_affine_constraints_by_indices(program, inds)
-end
-
-export apply_regularization
 
 function initialize!(solver::Solver, is_init=false)
     solver.status.status_termination = INFEASIBLE
@@ -708,18 +460,6 @@ function check_infeasibility(solver::Solver,
     end
 end
 
-function check_progress(solver::Solver, tol::Float64)
-    status = solver.status
-    if length(status.step_size) > 0 &&
-    status.step_size[end] < tol
-        if length(status.duality_gap) > 1 &&
-        abs(status.duality_gap[end] - status.duality_gap[end-1]) < tol
-            @info "Slow progress..."
-            status.status_termination = SLOW_PROGRESS
-        end
-    end
-end
-
 """
     is_optimal(solver, gap_atol, gap_rtol, tol)
 
@@ -757,7 +497,7 @@ function is_optimal(solver::Solver,
     end
 
     # check if convergence has stalled
-    check_progress(solver, tol)
+    check_progress(status, tol)
     return false
 end
 
@@ -1000,7 +740,7 @@ function evaluate_optimality_conditions(solver::Solver)
         result = true
     end
 
-    log_iteration_status(solver)
+    log_iteration_status(status)
 
     return result, r, μ
 end
@@ -1050,7 +790,7 @@ function run_on_device(device, fn, args...)
     return fn(args...)
 end
 
-function apply_iterative_refinement(solver::Solver)
+function solve_iterative_refinement(solver::Solver)
     device = solver.device
     program = solver.program
     x_inds = program.inds_c
@@ -1095,13 +835,15 @@ function apply_iterative_refinement(solver::Solver)
     program.KKT_x[y_inds] = program.KKT_x[y_inds] + α * Δx[y_inds]
 
     @assert is_convex_cone(program, α)
+
+    # TODO: log solver status
     
     return true
 end
 
-function apply_iterative_refinement(solver::Solver, num_iter=1)
+function apply_iterative_refinement(solver::Solver, num_iter::Int=1)
     for i in 1:num_iter
-        apply_iterative_refinement(solver)
+        solve_iterative_refinement(solver)
     end
 end
 
@@ -1152,7 +894,6 @@ function get_central_path(solver::Solver,
     if !isnothing(program.P)
         kktsystem.kkt_1_1 = program.P + kktsystem.kkt_1_1
     end
-    
     result = apply_iterative_refinement(solver, solver.iterative_refinement_max_iterations)
     
     Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = kktsolver.affine_search_direction(solver, G_scaled, kktsystem.kkt_1_1, inv_W_b_z)
@@ -1227,9 +968,7 @@ function get_central_path(solver::Solver,
     # return result, r, μ
 end
 
-export ConeQP
 export Solver
-export TerminationStatus
 
 export evaluate_optimality_conditions
 export get_solution

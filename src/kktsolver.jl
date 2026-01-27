@@ -10,12 +10,6 @@ include("./kktsolvers/qrchol.jl")
 
 using SparseArrays
 
-mutable struct KKTIterate
-    KKT_x
-    s
-    z
-end
-
 """
     KKTSystem
 

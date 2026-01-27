@@ -5,6 +5,9 @@ This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.
 file in the root directory
 =#
 
+using LinearAlgebra
+using OperatorScaling
+
 """
     Program API
 
@@ -237,6 +240,8 @@ mutable struct ConeQP
         return cone_qp
     end
 end
+
+export ConeQP
 
 function find_constraints(constraints, predicate)
     match_constraints = []
@@ -696,3 +701,89 @@ function get_constraint_dual(program::ConeQP)
 end
 
 export get_constraint_dual
+
+function get_num_constraints(program::ConeQP)
+    num_constraints = 0
+    if !isnothing(program.A)
+        num_constraints += size(program.A)[1]
+    end
+    num_constraints += size(program.G)[1]
+    return num_constraints
+end
+
+function check_preconditions(qp::ConeQP)
+    if !isnothing(qp.A) && rank(qp.A) < size(qp.A)[1]
+        @error "Values of A are inconsistent or redundant."
+        @assert false
+    end
+    if !isnothing(qp.A)
+        if rank([qp.P qp.A' qp.G']) < length(qp.c)
+            @error "There are some constraints in the problem that are either
+            redundant or inconsistent."
+            @assert false
+        end
+    else
+        if rank([qp.P qp.G']) < length(qp.c)
+            @error "There are some constraints in the problem that are either
+            redundant or inconsistent."
+            @assert false
+        end
+    end
+end
+
+function update_affine_constraints(program::ConeQP)
+    program.kktsystem.A = program.A
+    program.kktsystem.b = program.b
+end
+
+function update_inequality_constraints(program::ConeQP)
+    program.kktsystem.G = program.G
+    program.kktsystem.h = program.h
+end
+
+export update_affine_constraints
+export update_inequality_constraints
+
+function apply_equilibration(program::ConeQP, max_iter::Int=100)
+    @info "Performing Ruiz Equilibration"
+    A_scaled, D1, D2 = equilibrate(program.A, max_iter=max_iter)
+    b_scaled = D1 * program.b
+    program.A = A_scaled
+    program.b = b_scaled
+    return D2
+end
+
+# rank revealing qr, remove redundant constraints
+function rrqr(program::ConeQP, tol=1e-9)
+    A = program.A
+    F = qr(A', ColumnNorm())
+    # get list of row indices where diagonal elements of R satisfy tol
+    inds = [i for (i, v) in enumerate(diag(F.R)) if abs(v) >= tol]
+    inds = [x[2] for x in findall(val -> val == 1, F.P'[inds, :])]
+    return inds
+end
+
+export rrqr
+
+function apply_regularization(program::ConeQP, tol=1e-9)
+    @info "Performing RRQR regularization"
+    inds = rrqr(program, tol)
+    remove_affine_constraints_by_indices(program, inds)
+end
+
+export apply_regularization
+
+function print_graphic()
+    fp = open("graphic.txt", "r")
+    words = readlines(fp, keep=true)
+    for word in words
+        print(word)
+    end
+end
+
+function print_header()
+    # print_graphic()
+    println("Alexander Leong, 2025")
+    println("Version 0.0.3")
+    println(repeat("-", 144))
+end
