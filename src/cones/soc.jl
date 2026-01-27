@@ -45,6 +45,16 @@ function alpha_d(cone::SecondOrderCone)
     return α_d
 end
 
+function alpha_p(cone::SecondOrderCone, z::Vector{Float64})
+    α_p = -z[1] - norm(z[2:end])
+    return α_p
+end
+
+function alpha_d(cone::SecondOrderCone, z::Vector{Float64})
+    α_d = z[1] - norm(z[2:end])
+    return α_d
+end
+
 function degree(cone::SecondOrderCone)
     return 1
 end

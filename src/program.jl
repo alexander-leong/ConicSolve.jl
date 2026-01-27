@@ -321,7 +321,7 @@ end
 
 export get_indices_of_constraint
 
-function get_elements_by_constraint_inds(program::ConeQP, cone::Cone, v::Vector{Float64})
+function get_elements_by_constraint_inds(program::ConeQP, cone::Cone, v)
     inds = get_indices_of_constraint(program, cone)
     return v[inds]
 end
@@ -384,7 +384,6 @@ export get_constraint_matrix
 
 function get_affine_constraint_matrix(program::ConeQP, allocated=false)
     ir = program.program_ir
-    println("Num affine constraints $(length(ir._all_affine_constraints))")
     if allocated == false
         A = get_constraint_matrix(program, ir._all_affine_constraints, [])
     else
@@ -415,7 +414,6 @@ function get_inequality_constraint_matrix(program::ConeQP, allocated=false)
         h = zeros(n)
         add_inequality_constraint(program, cone, G, h)
     end
-    println("Num inequality constraints $(length(ir._all_inequality_constraints))")
     G = get_constraint_matrix(program, ir._all_inequality_constraints)
     h = vcat([constraint.rhs for constraint in ir._all_inequality_constraints]...)
     return G, h
@@ -474,7 +472,7 @@ function build_program(program::ConeQP, allocated=false)
     P, c = get_primal_objective(program)
 
     A, b = get_affine_constraint_matrix(program)
-    println("Condition number of equality constraint matrix: $(cond(A))")
+    # println("Condition number of equality constraint matrix: $(cond(A))")
     G, h = get_inequality_constraint_matrix(program, allocated)
     program.A = A
     program.G = G
@@ -696,3 +694,5 @@ function get_constraint_dual(program::ConeQP)
     z = program.KKT_x[program.inds_h]
     return (y, z)
 end
+
+export get_constraint_dual

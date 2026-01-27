@@ -47,6 +47,16 @@ function alpha_d(cone::PSDCone)
     return α_d
 end
 
+function alpha_p(cone::PSDCone, z::Vector{Float64})
+    α_p = minimum(eigen(mat(-z)).values)
+    return α_p
+end
+
+function alpha_d(cone::PSDCone, z::Vector{Float64})
+    α_d = minimum(eigen(mat(z)).values)
+    return α_d
+end
+
 function get_size(cone::PSDCone)
     return Int((cone.p * (cone.p + 1)) / 2)
 end

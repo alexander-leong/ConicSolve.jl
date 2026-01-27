@@ -47,7 +47,7 @@ The KKT solution vector [x; y; 0].
 function qr_chol_solve(device, kktsystem, b_x, b_y, b_z, check=false)
     G = @view kktsystem.G[:, :]
     Q_A = @view kktsystem.kkt_1_1[:, :]
-    Q_A += 1e-3*I
+    Q_A += 1e-6*I
     b_1 = b_x + G' * b_z
     b_2 = @view b_1[:]
     x_len = length(b_x)

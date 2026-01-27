@@ -39,6 +39,16 @@ function alpha_d(cone::NonNegativeOrthant)
     return α_d
 end
 
+function alpha_p(cone::NonNegativeOrthant, z::Vector{Float64})
+    α_p = minimum(-z)
+    return α_p
+end
+
+function alpha_d(cone::NonNegativeOrthant, z::Vector{Float64})
+    α_d = minimum(z)
+    return α_d
+end
+
 function get_size(cone::NonNegativeOrthant)
     return cone.p
 end

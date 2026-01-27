@@ -62,8 +62,6 @@ function project_to_min_face(x::Vector{Float64}, in_program::ConeQP, out_program
     X = mat(x)
     F = svd(X)
     inds = findall(F.S .>= tol)
-    println("Condition number $(cond(X))")
-    println("Numerical rank $(length(inds))")
     U = F.U[:, inds]
 
     reduced_cone = reduce_affine_constraints(in_program, out_program, U, cone, length(inds))
@@ -72,8 +70,8 @@ function project_to_min_face(x::Vector{Float64}, in_program::ConeQP, out_program
 end
 
 function expose_face(solver::ConicSolve.Solver)
-    suppress_logging(solver)
-    ConicSolve.run_solver(solver)
+    # suppress_logging(solver)
+    ConicSolve.run_solver(solver, false, false, false)
     program = solver.program
     A = program.A
     y_inds = program.inds_b
@@ -82,6 +80,15 @@ function expose_face(solver::ConicSolve.Solver)
     x_inds = program.inds_c
     s_perp = program.KKT_x[x_inds]
     return s, s_perp
+end
+
+function log_best_iterate(solver::ConicSolve.Solver, i)
+    status = get_solver_status(solver)
+    program = solver.program
+    y, _ = get_constraint_dual(program)
+    b_y = program.b' * y
+    additional_data = ["b'y" b_y]
+    log_iteration_status(solver, i == 1, status.best_iterate, additional_data)
 end
 
 function reduce_cone(solver::ConicSolve.Solver, cone::Cone, tol=1e-1)
@@ -95,8 +102,12 @@ function reduce_cone(solver::ConicSolve.Solver, cone::Cone, tol=1e-1)
         s, s_perp = expose_face(solver)
 
         status = get_solver_status(solver)
-        log_iteration_status(solver, i == 1, status.best_iterate)
-        if status.status_termination == ConicSolve.INFEASIBLE || i == 2
+        log_best_iterate(solver, i)
+        if status.status_termination == ConicSolve.INFEASIBLE
+            @info "Face reduced from n = $(cone.p) to $(i)"
+            break
+        end
+        if cone.p == i
             break
         end
 
@@ -109,6 +120,7 @@ function reduce_cone(solver::ConicSolve.Solver, cone::Cone, tol=1e-1)
         U, reduced_cone = project_to_min_face(s_perp, solver.program, reduced_program, cone)
         reduced_program = build_program(reduced_program)
         solver = Solver(reduced_program)
+        solver.presolve_scaling_method = "ruiz"
         @info "Reduced problem, i = $(i)"
         i += 1
     end
@@ -158,7 +170,7 @@ function reduce_cone_program(orig_solver::ConicSolve.Solver, cone::Cone)
 
     # solve the reduced problem
     cone_subproblem_solver = ConicSolve.Solver(reduced_program)
-    ConicSolve.run_solver(cone_subproblem_solver)
+    ConicSolve.run_solver(cone_subproblem_solver, false, false, false)
     x = get_solution(cone_subproblem_solver)
 
     # reproject back to original form

@@ -47,6 +47,13 @@ end
 
 export Device, CPU, GPU
 
+@enum IterativeRefinementTriggerMode begin
+    ITERATIVE_REFINEMENT_DEFAULT_TRIGGER_MODE
+    ITERATIVE_REFINEMENT_PER_ITERATION
+end
+
+export IterativeRefinementTriggerMode, ITERATIVE_REFINEMENT_DEFAULT_TRIGGER_MODE, ITERATIVE_REFINEMENT_PER_ITERATION
+
 function Base.parse(::Type{Device}, value)
     return value == "CPU" ? CPU : GPU
 end
@@ -56,6 +63,9 @@ export parse
 mutable struct SolverStatus
     best_iterate::Int32
     current_iteration::Int32
+    current_residual_x::AbstractArray{Float64}
+    current_residual_y::AbstractArray{Float64}
+    current_residual_z::AbstractArray{Float64}
     kkt_iterate::CircularBuffer{KKTIterate}
 
     duality_gap::AbstractArray{Float64}
@@ -71,6 +81,9 @@ mutable struct SolverStatus
         status = new()
         status.best_iterate = 0
         status.current_iteration = 0
+        status.current_residual_x = []
+        status.current_residual_y = []
+        status.current_residual_z = []
         buffer_size = 5
         status.kkt_iterate = CircularBuffer{KKTIterate}(buffer_size)
         status.duality_gap = []
@@ -110,7 +123,7 @@ end
 
 Represents an Interior Point Method solver
 for solving Conic Quadratic Programs.
-All parameters are optional except `program`.
+All parameters are optional except `program` which must be specified before calling run_solver.
 
 ### Parameters:
 * `cb_after_iteration`: Callback function of the form: function cb(solver::Solver) end
@@ -136,6 +149,8 @@ mutable struct Solver
     cb_before_iteration
     current_iteration::Int32
     device::Device
+    iterative_refinement_max_iterations::Int
+    iterative_refinement_trigger_mode::IterativeRefinementTriggerMode
     kktsolver::KKTSolver
     limit_obj::Union{Float64, Nothing}
     limit_soln::Union{Float64, Nothing}
@@ -187,6 +202,8 @@ mutable struct Solver
         solver.cb_before_iteration = cb_before_iteration
         solver.current_iteration = 1
         solver.device = CPU
+        solver.iterative_refinement_max_iterations = 1
+        solver.iterative_refinement_trigger_mode = ITERATIVE_REFINEMENT_DEFAULT_TRIGGER_MODE
         solver.kktsolver = setup_default_kkt_solver(kktsolve, preconditioner)
         if !ismissing(program)
             check_program(program)
@@ -295,10 +312,12 @@ end
 
 Executes the solver on the optimization problem.
 """
-function run_solver(solver::Solver, is_init=false, check=false, kwargs...)
+function run_solver(solver::Solver, is_init=false, check=false, header=true, kwargs...)
     try
         with_logger(solver.logger) do
-            print_header()
+            if header == true
+                print_header()
+            end
             @info "Optimize called"
             BLAS.set_num_threads(solver.num_threads)
             # if !isnothing(solver.cb_before_iteration)
@@ -310,8 +329,8 @@ function run_solver(solver::Solver, is_init=false, check=false, kwargs...)
                 check_preconditions(solver)
             end
             result = optimize_main!(solver, kwargs...)
+            return result
         end
-        return result
     catch err
         if isa(err, LAPACKException)
             solver.status.status_termination = NUMERICAL_ERROR
@@ -384,6 +403,13 @@ function optimize_main!(solver::Solver, kwargs...)
         itr_time_elapsed = @elapsed begin
         result, r, μ = update_solver_status(solver)
         if result == true
+            # update program with best in-memory solution
+            best_idx, kkt_iterate = get_best_iterate(solver.status)
+            solver.status.best_iterate = best_idx
+            program = solver.program
+            program.KKT_x = kkt_iterate.KKT_x
+            program.s = kkt_iterate.s
+            program.z = kkt_iterate.z
             @info "Terminating optimization loop"
             break
         end
@@ -409,26 +435,27 @@ function optimize_main!(solver::Solver, kwargs...)
             break
         end
     end
-
-    # update program with best in-memory solution
-    best_idx, kkt_iterate = get_best_iterate(solver.status)
-    solver.status.best_iterate = best_idx
-    program.KKT_x = kkt_iterate.KKT_x
-    program.s = kkt_iterate.s
-    program.z = kkt_iterate.z
-    return status
+    return solver.status
 end
 
 function print_table(data, header=false, n=100, pad=15)
     if header == true
-        row = "| "
-        for val in eachrow(data)
+        row = ""
+        for (i, val) in enumerate(eachrow(data))
+            if i == 1
+                row *= lpad(val[:][1], 5, " ") * " |"
+                continue
+            end
             row *= lpad(val[:][1], pad, " ") * " |"
         end
         @info row
     end
-    row = "| "
-    for val in eachrow(data)
+    row = ""
+    for (i, val) in enumerate(eachrow(data))
+        if i == 1
+            row *= lpad(val[:][end], 5, " ") * " |"
+            continue
+        end
         row *= lpad(round(val[:][end], sigdigits=6), pad, " ") * " |"
     end
     @info row
@@ -443,6 +470,8 @@ function log_solver_parameters(solver::Solver)
         lpad("Num constraints: ", pad, " ") get_num_constraints(solver.program);
         lpad("Num threads: ", pad, " ") solver.num_threads;
         lpad("Preferred device: ", pad, " ") solver.device;
+        lpad("Iterative Refinement Max Iterations: ", pad, " ") solver.iterative_refinement_max_iterations;
+        lpad("Iterative Refinement Trigger Mode: ", pad, " ") solver.iterative_refinement_trigger_mode;
         lpad("System Solver KKT method: ", pad, " ") solver.kktsolver.kktsolve["label"];
         lpad("Time limit (seconds): ", pad, " ") solver.time_limit_sec;
         lpad("Tolerance gap absolute: ", pad, " ") solver.tol_gap_abs;
@@ -454,7 +483,7 @@ function log_solver_parameters(solver::Solver)
     end
 end
 
-function log_iteration_status(solver::Solver, header=false, i=0)
+function log_iteration_status(solver::Solver, header=false, i=0, additional_data=[])
     status = solver.status
     data = ["Iter." status.current_iteration;
     "Dual Res." status.residual_x[end-i];
@@ -464,6 +493,9 @@ function log_iteration_status(solver::Solver, header=false, i=0)
     "Primal Obj." status.primal_obj[end-i];
     "Dual Obj." status.dual_obj[end-i];
     "Step size" status.step_size[end-i];]
+    if additional_data != []
+        data = vcat(data, additional_data)
+    end
     # TODO logging frequency and other options
     n = 100
     print_header = status.current_iteration % n == 1 || header
@@ -498,6 +530,18 @@ end
 
 function alpha_d(program::ConeQP)
     α_vec = map(k -> alpha_d(k), program.cones)
+    return -minimum(α_vec)
+end
+
+function alpha_p(program::ConeQP, z)
+    cones = program.cones
+    α_vec = map(cone -> alpha_p(cone, get_elements_by_constraint_inds(program, cone, z)), cones)
+    return -α_vec[argmax(abs.(α_vec))]
+end
+
+function alpha_d(program::ConeQP, z)
+    cones = program.cones
+    α_vec = map(cone -> alpha_d(cone, get_elements_by_constraint_inds(program, cone, z)), cones)
     return -minimum(α_vec)
 end
 
@@ -693,10 +737,8 @@ function is_optimal(solver::Solver,
                     tol::Float64)
     status = solver.status
     r1 = check_feasibility(solver, tol)
-    println("feas: $(r1)")
 
     r2 = check_duality_gap(μ, gap_atol, gap_rtol)
-    println("gap: $(r2)")
 
     # stopping criteria based on
     # https://www.seas.ucla.edu/~vandenbe/ee236a/lectures/mpc.pdf
@@ -789,7 +831,6 @@ function evaluate_residual(qp::ConeQP,
     r_z = qp.s + qp.G * x - qp.h
     r[x_inds] = r_x
     r[z_inds] = r_z
-    println("b'y: $(qp.b' * Δx[y_inds])")
     return r
 end
 
@@ -936,6 +977,9 @@ function evaluate_optimality_conditions(solver::Solver)
     # save status
     status = solver.status
     status.current_iteration = i
+    status.current_residual_x = r_x
+    status.current_residual_y = r_y
+    status.current_residual_z = r_z
     push!(status.duality_gap, μ)
     push!(status.dual_obj, dual_obj)
     push!(status.primal_obj, pri_obj)
@@ -977,6 +1021,7 @@ function update_solver_status(solver::Solver)
         # Farkas' lemma
         r1 = check_infeasibility(solver)
         if r1 == true
+            @info "Produced certificate of infeasibility"
             status.status_termination = INFEASIBLE
             return true, [], nothing
         end
@@ -1003,6 +1048,61 @@ function run_on_device(device, fn, args...)
         arg = get_array(device, arg)
     end
     return fn(args...)
+end
+
+function apply_iterative_refinement(solver::Solver)
+    device = solver.device
+    program = solver.program
+    x_inds = program.inds_c
+    y_inds = program.inds_b
+    kktsystem = program.kktsystem
+    status = get_solver_status(solver)
+    r_x = -status.current_residual_x
+    r_y = -status.current_residual_y
+    r_z = zeros(length(status.current_residual_z))
+
+    @info "Applying iterative refinement"
+    Δx = qr_chol_solve(device, kktsystem, r_x, r_y, r_z)
+    x = @view Δx[x_inds]
+
+    # get step size by updating vars
+    b_z = program.G * x
+    b_z_scaled = get_inv_weighted_mat(program, b_z)
+    Δz = get_inv_weighted_mat(program, b_z_scaled, true)
+    s = @view program.s[:]
+    Δs = -s - b_z
+
+    # save vars
+    Δz_tmp = program.z[:]
+    Δs_tmp = program.s[:]
+    program.z = @view Δz[:, 1]
+    program.s = Δs
+    update_cones(program)
+    α_p = alpha_p(program)
+    α_d = alpha_d(program)
+    α = minimum((α_p, α_d))
+    α = minimum((1, α))
+    α = maximum((0, α))
+    println("Step size $(α)")
+
+    # restore vars
+    program.z = Δz_tmp
+    program.s = Δs_tmp
+    update_cones(program)
+
+    # update iterates
+    program.KKT_x[x_inds] = program.KKT_x[x_inds] + α * Δx[x_inds]
+    program.KKT_x[y_inds] = program.KKT_x[y_inds] + α * Δx[y_inds]
+
+    @assert is_convex_cone(program, α)
+    
+    return true
+end
+
+function apply_iterative_refinement(solver::Solver, num_iter=1)
+    for i in 1:num_iter
+        apply_iterative_refinement(solver)
+    end
 end
 
 function get_central_path(solver::Solver,
@@ -1052,6 +1152,9 @@ function get_central_path(solver::Solver,
     if !isnothing(program.P)
         kktsystem.kkt_1_1 = program.P + kktsystem.kkt_1_1
     end
+    
+    result = apply_iterative_refinement(solver, solver.iterative_refinement_max_iterations)
+    
     Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = kktsolver.affine_search_direction(solver, G_scaled, kktsystem.kkt_1_1, inv_W_b_z)
     update_cones(program, Δsₐ, Δxₐ[z_inds])
     # end
@@ -1134,4 +1237,3 @@ export get_solver_status
 export initialize!
 export is_optimal
 export run_solver
-export update_equality_constraints
