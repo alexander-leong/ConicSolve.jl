@@ -16,17 +16,17 @@ mutable struct FacialReduction
 end
 
 # TODO: only handles PSD constraints!
-function reduce_constraint(U::Matrix{Float64}, cone::NonNegativeOrthant, constraint::ConeConstraint)
+function reduce_constraint(U::Matrix{Float64}, cone::NonNegativeOrthant, constraint::ConicExpression)
     println("NOT HANDLED")
     @assert false
 end
 
-function reduce_constraint(U::Matrix{Float64}, cone::SecondOrderCone, constraint::ConeConstraint)
+function reduce_constraint(U::Matrix{Float64}, cone::SecondOrderCone, constraint::ConicExpression)
     println("NOT HANDLED")
     @assert false
 end
 
-function reduce_constraint(U::Matrix{Float64}, cone::PSDCone, constraint::ConeConstraint, tol=1e-6)
+function reduce_constraint(U::Matrix{Float64}, cone::PSDCone, constraint::ConicExpression, tol=1e-6)
     A_i = get_mat_from_lt_vec(constraint.lhs)
     reduced_A_i = U' * A_i * U
     reduced_a = get_vec_from_lt_mat(reduced_A_i)

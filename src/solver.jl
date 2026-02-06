@@ -9,7 +9,7 @@ file in the root directory
 
 include("./debug.jl")
 include("./kktsolver.jl")
-include("./program.jl")
+include("frontend/compile.jl")
 include("./status.jl")
 
 using LinearAlgebra
