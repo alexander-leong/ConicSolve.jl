@@ -44,7 +44,7 @@ b\\_y (i.e. ``b_y``, if linear equality constraints present).
 
 The KKT solution vector [x; y; 0].
 """
-function qr_chol_solve(device, kktsystem, b_x, b_y, b_z, check=false)
+function qr_chol_solve(device, kktsystem, b_x, b_y, b_z, check=false, use_ldu=false)
     G = @view kktsystem.G[:, :]
     Q_A = @view kktsystem.kkt_1_1[:, :]
     Q_A += 1e-6*I
@@ -74,7 +74,11 @@ function qr_chol_solve(device, kktsystem, b_x, b_y, b_z, check=false)
         R = get_array(device, R)
         b_y = get_array(device, b_y)
         Q_1 = get_array(device, Q_1)
-        Q_2_A = cholesky(Q_A' * Q_A, check=check).L
+        if use_ldu == true
+            D, U, P = bunchkaufman(Q_A' * Q_A)
+        else
+            Q_2_A = cholesky(Q_A' * Q_A, check=check).L
+        end
         Q_A = @view kktsystem.kkt_1_1[:, :]
         Q_A = get_array(device, Q_A)
 	    Q_1_x = R' \ b_y
@@ -82,8 +86,16 @@ function qr_chol_solve(device, kktsystem, b_x, b_y, b_z, check=false)
         A₁₁x₁ = Q_1' * S_Q1_x
         A₂₁x₁ = Q_2' * S_Q1_x
         b_2 = get_array(device, b_2)
-        U_Q2_x = Q_2_A \ (Q_2' * b_2 - A₂₁x₁)
-        Q_2_x = Q_2_A' \ U_Q2_x
+        rhs = Q_2' * b_2 - A₂₁x₁
+        if use_ldu == true
+            rhs = rhs[P]
+            U_Q2_x = diagm(inv.(diag(D))) * (U' \ rhs)
+            P_inv = P .% (length(P) + 1)
+            Q_2_x = (U \ U_Q2_x)[P_inv]
+        else
+            U_Q2_x = Q_2_A \ rhs
+            Q_2_x = Q_2_A' \ U_Q2_x
+        end
         A₁₂x₂ = Q_1' * (Q_A' * (Q_2 * Q_2_x))
         b_1 = get_array(device, b_1)
         y = R \ ((Q_1' * b_1) - A₁₁x₁ - A₁₂x₂)

@@ -181,43 +181,19 @@ function get_mat_vec_len(psds)
     return n_i
 end
 
-# ------------------------------------------------------------------------
-# NOTES
-# The PSD constraint matrix "G" is a diagonal matrix
-# The vector "h" is the zero vector
-
-# The constraint dot(Mπ, Pπ) for (Mπ, Pπ) in zip(Mπs, psds) if !iszero(Mπ) == c
-# is implemented by the matrix "A" having the following structure:
-# vec(Mπ_1)  0 ... 0   0 ... 0
-#  0 ... 0  vec(Mπ_2)  0 ... 0
-#  0 ... 0   0 ... 0  vec(Mπ_n)
-# The vector "b" is just dot(C, iv)
-# ------------------------------------------------------------------------
-# function sos_to_qp(f, n, x)
-#     A, Mπs, b = decompose(f, n, x)
-#     num_vars = Int(sum([size(x, 1) * (size(x, 1) + 1)/2 for x in Mπs]))
-#     c = zeros(num_vars + 2)
-#     # The vector "c" is [0 ... 0 -1]
-#     c = set_objective(c)
-#     G = Matrix{Float64}(I, num_vars + 2, num_vars + 2)
-#     h = zeros(num_vars + 2)
-#     P = zeros((num_vars + 2, num_vars + 2))
-
-#     # construct problem
-#     cones::Vector{Cone} = []
-#     for x in Mπs
-#         p = size(x, 1)
-#         push!(cones, PSDCone(p))
-#     end
-#     push!(cones, NonNegativeOrthant(2))
-#     cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
-#     return cone_qp
-# end
+function get_reduced_solution(summands, xs)
+    n = size(summands[1], 2)
+    result = zeros((n, n))
+    for (summand, x) in zip(summands, xs)
+        result += summand' * mat(x) * summand
+    end
+    return result
+end
 
 export SOS_Symmetric_Group
 export wedderburn_decompose
 export get_constraint
 export get_mat_dim
 export get_mat_from_lt_vec
-export get_value_in_original_basis
+export get_reduced_solution
 export get_vec_from_lt_mat

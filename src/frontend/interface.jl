@@ -8,10 +8,11 @@ file in the root directory
 import Base.:*
 import Base.:+
 import Base.:-
-import Base.:<=
-import Base.:>=
 import Base.==
+import Base.:∈
 import Base.:∩
+
+import Base.:in
 
 using LinearAlgebra
 
@@ -43,44 +44,72 @@ mutable struct ConicExpression{T<:Cone}
     lhs::Union{Float64, VecOrMat{Float64}}
     rhs::Union{AbstractArray{Float64}, Float64}
 
-    intersecting_constraints::Vector{ConicExpression}
     link_constraints::Vector{ConicExpression}
+    # _remap_constraint::Bool
     function ConicExpression(cone::T, lhs::Union{Float64, VecOrMat{Float64}}, rhs::Union{AbstractArray{Float64}, Float64}) where T <: Cone
         constraint = new{T}()
         constraint.cone = cone
         constraint.inds = length(size(lhs)) == 2 ? (1:size(lhs, 2)) : 1
         constraint.lhs = lhs
         constraint.rhs = rhs
-        constraint.intersecting_constraints = []
         constraint.link_constraints = []
+        # constraint._remap_constraint = false
         return constraint
     end
 end
 
 export ConicExpression
 
-mutable struct ConeEqualityConstraint{T<:Cone}
-    v::ConicExpression{T}
-
-    function ConeEqualityConstraint(v::ConicExpression{T}) where T<:Cone
-        constraint = new{T}()
-        constraint.v = v
-        return constraint
+mutable struct IntersectingConstraint{T<:Cone, U<:Cone}
+    cone::T
+    constraint::ConicExpression{U}
+    # _remap_constraint::Bool
+    function IntersectingConstraint(cone::T, constraint::ConicExpression{U}) where {T<:Cone, U<:Cone}
+        obj = new{T, U}()
+        obj.cone = cone
+        obj.constraint = constraint
+        # obj._remap_constraint = false
+        return obj
     end
 end
 
-mutable struct ConeInequalityConstraint{T<:Cone}
-    v::ConicExpression{T}
-
-    function ConeInequalityConstraint(v::ConicExpression{T}) where T<:Cone
-        constraint = new{T}()
-        constraint.v = v
-        return constraint
+mutable struct NuclearNormConstraint
+    constraint::ConicExpression{PSDCone}
+    # _remap_constraint::Bool
+    function NuclearNormConstraint(constraint::ConicExpression{PSDCone})
+        obj = new()
+        obj.constraint = constraint
+        # obj._remap_constraint = true
     end
 end
 
-export ConeEqualityConstraint
-export ConeInequalityConstraint
+mutable struct TraceNorm
+    constraint::ConicExpression{PSDCone}
+end
+
+mutable struct ObjectiveFunction
+    args::Vector
+
+    function ObjectiveFunction(args)
+        obj = new()
+        obj.args = args
+        return obj
+    end
+end
+
+export ObjectiveFunction
+
+function minimize(args...)
+    obj = ObjectiveFunction([args...])
+    return obj
+end
+
+function minimize(args::Vector{ConicExpression{T}}) where T<:Cone
+    obj = ObjectiveFunction(args...)
+    return obj
+end
+
+export minimize
 
 function Base.:*(lhs::VecOrMat{Float64}, cone::T) where T <: Cone
     return ConicExpression(cone, lhs, Float64[])
@@ -103,22 +132,34 @@ function Base.:-(constraint1::ConicExpression{T}, constraint2::ConicExpression{U
     return constraint1
 end
 
-function l1(lhs::VecOrMat{Float64}, cone::Cone)
-    p = get_size(cone)
-    intersecting_cone = NonNegativeOrthant(p)
-    intersecting_constraint = ConicExpression(cone, Matrix{Float64}(I, cone.p, cone.p), zeros(get_size(intersecting_cone)))
-    expression = ConicExpression(cone, lhs, Float64[])
-    push!(expression.intersecting_constraints, intersecting_constraint)
-    return expression
+function Base.:+(constraint::ConicExpression{T}, rhs::Vector{Float64}) where {T<:Cone}
+    constraint.rhs = rhs
+    return constraint
 end
 
-function l2(lhs::VecOrMat{Float64}, cone::Cone)
+function Base.:-(constraint::ConicExpression{T}, rhs::Vector{Float64}) where {T<:Cone}
+    constraint.rhs = -rhs
+    return constraint
+end
+
+function l1(lhs::Vector{Float64}, cone::Cone)
+    p = get_size(cone)
+    intersecting_cone = NonNegativeOrthant(p)
+    constraint_lhs = Matrix{Float64}(I, p, p)
+    intersecting_constraint = ConicExpression(cone, constraint_lhs, zeros(get_size(intersecting_cone)))
+    intersecting_constraint.rhs = zeros(p)
+    expression = IntersectingConstraint(intersecting_cone, intersecting_constraint)
+    return lhs, expression
+end
+
+function l2(lhs::Vector{Float64}, cone::Cone)
     p = get_size(cone)
     intersecting_cone = SecondOrderCone(p)
-    intersecting_constraint = ConicExpression(cone, Matrix{Float64}(I, cone.p, cone.p), zeros(get_size(intersecting_cone)))
-    expression = ConicExpression(cone, lhs, Float64[])
-    push!(expression.intersecting_constraints, intersecting_constraint)
-    return expression
+    constraint_lhs = Matrix{Float64}(I, p, p)
+    intersecting_constraint = ConicExpression(cone, constraint_lhs, zeros(get_size(intersecting_cone)))
+    intersecting_constraint.rhs = zeros(p)
+    expression = IntersectingConstraint(intersecting_cone, intersecting_constraint)
+    return lhs, expression
 end
 
 function lmi(lhs::Vector{Matrix{Float64}}, cone::PSDCone)
@@ -127,46 +168,61 @@ function lmi(lhs::Vector{Matrix{Float64}}, cone::PSDCone)
     for (i, v) in enumerate(lhs)
         G[:, i] = svec(v)
     end
-    expression = ConicExpression(cone, G, Float64[])
-    return ConeInequalityConstraint(expression)
+    return ConicExpression(cone, G, Float64[])
+end
+
+function nuclear_norm(cone::PSDCone)
+    expression = ConicExpression(cone, Float64[], Float64[])
+    expression._remap_constraint = true
+    return expression
+end
+
+function tr(cone::PSDCone)
 end
 
 export l1
 export l2
 export lmi
 
-function Base.:(<=)(cone::NonNegativeOrthant, rhs::Union{AbstractArray{Float64}, Float64})
-    return ConeInequalityConstraint{NonNegativeOrthant}(cone, Matrix{Float64}(I, cone.p, cone.p), rhs)
+function Base.:in(expression::ConicExpression{T}, cone::NonNegativeOrthant) where T<:Cone
+    expression.rhs = zeros(get_size(cone))
+    intersecting_constraint = IntersectingConstraint(cone, expression)
+    return intersecting_constraint
 end
 
-function Base.:(<=)(constraint::ConicExpression{SecondOrderCone}, rhs::Float64)
+function Base.:in(expression::ConicExpression{T}, cone::SecondOrderCone) where T<:Cone
+    expression.rhs = zeros(get_size(cone))
+    intersecting_constraint = IntersectingConstraint(cone, expression)
+    return intersecting_constraint
+end
+
+function Base.:in(expression::ConicExpression{T}, cone::PSDCone) where T<:Cone
+    expression.rhs = zeros(get_size(cone))
+    intersecting_constraint = IntersectingConstraint(cone, expression)
+    return intersecting_constraint
+end
+
+function Base.:in(constraint::ConicExpression{PSDCone}, V::Matrix{Float64})
+    constraint.rhs = svec(V)
+    return constraint
+end
+
+function Base.:(==)(expression::ConicExpression{T}, rhs::Union{AbstractArray{Float64}, Float64}) where T<:Cone
+    expression.rhs = rhs
+    return expression
+end
+
+function Base.:(==)(expression::IntersectingConstraint{T, U}, rhs::Union{AbstractArray{Float64}, Float64}) where {T<:Cone, U<:Cone}
+    constraint = expression.constraint
     constraint.rhs = rhs
+    return expression
+end
+
+function Base.:(==)(cone::T, rhs::Vector{Float64}) where T<:Cone
+    n = get_size(cone)
+    constraint = ConicExpression(cone, Matrix{Float64}(I, n, n), rhs)
     return constraint
 end
-
-function Base.:(<=)(cone::PSDCone, rhs::Matrix{Float64})
-    return ConeInequalityConstraint{PSDCone}(cone, Matrix{Float64}(I, cone.p, cone.p), svec(rhs))
-end
-
-function Base.:(<=)(constraint::ConeInequalityConstraint{PSDCone}, rhs::Matrix{Float64})
-    constraint.v.rhs = svec(rhs)
-    return constraint
-end
-
-function Base.:(==)(constraint::ConicExpression{T}, rhs::Union{AbstractArray{Float64}, Float64}) where {T<:Cone}
-    constraint.rhs = rhs
-    constraint = ConeEqualityConstraint(constraint)
-    return constraint
-end
-
-# function Base.:∩(cone1::Cone, cone2::Cone)
-#     return [cone1, cone2]
-# end
-
-# function Base.:∩(cones::Vector{Cone}, cone::Cone)
-#     push!(cones, cone)
-#     return cones
-# end
 
 function Base.getindex(cone::T, inds::Union{UnitRange{Int64}, Int64}) where {T<:Cone}
     constraint = ConicExpression(cone, nothing, nothing)

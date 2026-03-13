@@ -20,31 +20,6 @@ This is achieved by significantly reducing the need to index into matrix/vector 
 have more cognitive capacity to spend on the things that matter, solving the right problems the right way!
 """
 
-mutable struct ObjectiveFunction
-    c::Vector{Vector{Float64}}
-    cones::Vector{Cone}
-
-    function ObjectiveFunction()
-        obj = new()
-        obj.c = []
-        obj.cones = []
-        return obj
-    end
-end
-
-export ObjectiveFunction
-
-function minimize(args...)
-    obj = ObjectiveFunction()
-    for arg in args
-        push!(obj.c, arg.lhs)
-        push!(obj.cones, arg.cone)
-    end
-    return obj
-end
-
-export minimize
-
 """
     PrimalObjective
 
@@ -64,24 +39,49 @@ mutable struct PrimalObjective
     c::AbstractArray{Float64}
 end
 
+const AffineConstraints = Vector{ConicExpression{<:Cone}}
+const InequalityConstraints = Vector{Union{ConicExpression{<:Cone}, IntersectingConstraint}}
+const AllConstraints = Vector{Union{ConicExpression{<:Cone}, IntersectingConstraint}}
+
+export AllConstraints
+
 mutable struct ConeQP_IR
     obj::Vector{PrimalObjective}
-    affine_constraints::Vector{ConicExpression{<:Cone}}
-    inequality_constraints::Vector{ConicExpression{<:Cone}}
-    _all_affine_constraints::Vector{ConicExpression{<:Cone}}
-    _all_inequality_constraints::Vector{ConicExpression{<:Cone}}
+    _all_affine_constraints::AllConstraints
+    _all_inequality_constraints::AllConstraints
 
     ids_cones::Vector{UInt64}
     num_vars::UInt64
     function ConeQP_IR()
         ir = new()
         ir.obj = []
-        ir.affine_constraints = Vector{ConicExpression{<:Cone}}()
-        ir.inequality_constraints = Vector{ConicExpression{<:Cone}}()
-        ir._all_affine_constraints = Vector{ConicExpression{<:Cone}}()
-        ir._all_inequality_constraints = Vector{ConicExpression{<:Cone}}()
+        ir._all_affine_constraints = AllConstraints()
+        ir._all_inequality_constraints = AllConstraints()
         return ir
     end
+end
+
+mutable struct ConicVariables
+    cones::Vector{Cone}
+    cones_inds::Vector{Int}
+    cones_p::Vector{Int}
+    offset::Int
+    function ConicVariables()
+        obj = new()
+        obj.cones = []
+        obj.cones_inds = []
+        obj.cones_p = []
+        obj.offset = 0
+        return obj
+    end
+end
+
+function get_size(variables::ConicVariables)
+    return variables.cones_inds[end]
+end
+
+function get_inds(variables::ConicVariables, i::Int)
+    return variables.cones_inds[i]+1:variables.cones_inds[i+1]
 end
 
 """
@@ -102,9 +102,8 @@ mutable struct ConeQP
     z::AbstractVector{Float64}
     α::Float64
     
-    cones::Vector{Cone}
-    cones_inds::Vector{Int}
-    cones_p::Vector{Int}
+    vars::ConicVariables
+    aux_vars::ConicVariables
 
     inds_c::UnitRange{Int64}
     inds_b::UnitRange{Int64}
@@ -172,7 +171,8 @@ mutable struct ConeQP
         cone_qp.b = b
         cone_qp.c = c
         cone_qp.h = h
-        cone_qp.cones = cones
+        cone_qp.vars = ConicVariables()
+        cone_qp.aux_vars = ConicVariables()
         return cone_qp
     end
     
@@ -215,7 +215,8 @@ mutable struct ConeQP
         cone_qp.b = []
         cone_qp.c = []
         cone_qp.h = []
-        cone_qp.cones = []
+        cone_qp.vars = ConicVariables()
+        cone_qp.aux_vars = ConicVariables()
         return cone_qp
     end
 end
@@ -297,9 +298,10 @@ export remove_affine_constraints_by_indices
 export remove_inequality_constraints_by_indices
 
 function get_indices_of_constraint(program::ConeQP, cone::Cone)
+    vars = program.vars
     ir = program.program_ir
     k = findfirst(id -> id == objectid(cone), ir.ids_cones)
-    inds = program.cones_inds[k]+1:program.cones_inds[k+1]
+    inds = get_inds(vars, k)
     return inds
 end
 
@@ -317,25 +319,35 @@ end
 
 export get_elements_by_constraint_inds
 
-function get_constraint(program::ConeQP, constraint::ConicExpression, v::Vector{Float64})
+function set_column_indices!(program::ConeQP, constraint::ConicExpression, v::Vector{Float64})
     inds = get_indices_of_constraint(program, constraint.cone)
     v[inds] = constraint.lhs
     return v
 end
 
-function get_constraint(program::ConeQP, constraint::ConicExpression, v::Matrix{Float64})
+function set_column_indices!(program::ConeQP, constraint::ConicExpression, v::Matrix{Float64})
     inds = get_indices_of_constraint(program, constraint.cone)
     v[:, inds[constraint.inds]] = constraint.lhs
     return v
 end
 
-function get_constraint_indices(program::ConeQP, constraints::Vector{ConicExpression})
-    n = program.cones_inds[end]
-    function num_constraints(constraint)
+function set_column_indices!(program::ConeQP, constraints::Vector{ConicExpression{<:Cone}}, V)
+    for constraint in constraints
+        set_column_indices!(program, constraint, V)
+    end
+end
+
+export set_column_indices!
+
+function get_constraint_indices(program::ConeQP, constraints::AllConstraints, n=get_size(program.vars))
+    function num_constraints(constraint::ConicExpression)
         if length(size(constraint.lhs)) == 1
             return 1
         end
         return size(constraint.lhs, 1)
+    end
+    function num_constraints(expression::IntersectingConstraint{T, U}) where {T<:Cone, U<:Cone}
+        return num_constraints(expression.constraint)
     end
     num_rows = [num_constraints(constraint) for constraint in constraints]
     inds = [0, cumsum(num_rows)...]
@@ -343,29 +355,30 @@ function get_constraint_indices(program::ConeQP, constraints::Vector{ConicExpres
     return m, n, inds, num_rows
 end
 
-export get_constraint
+function set_row_indices!(program::ConeQP, constraint::ConicExpression{<:Cone}, V, v_alloc, row_inds)
+    V[row_inds, :] = set_column_indices!(program, constraint, v_alloc)
+    set_column_indices!(program, constraint.link_constraints, V[row_inds, :])
+end
 
-function get_constraint_matrix(program::ConeQP, constraints::Vector{ConicExpression{<:Cone}}, V=[])
-    function set_link_constraints!(program::ConeQP, constraint::ConicExpression, V)
-        for link_constraint in constraint.link_constraints
-            inds = get_indices_of_constraint(program, link_constraint.cone)
-            V[:, inds] = link_constraint.lhs
-        end
+function set_row_indices!(program::ConeQP, expression::IntersectingConstraint{<:Cone, <:Cone}, V, v_alloc, row_inds)
+    inds = get_indices_of_constraint(program, expression.cone)
+    constraint = expression.constraint
+    v_alloc[:, inds] = constraint.lhs
+    V[row_inds, :] = v_alloc
+end
+
+function get_constraint_matrix(program::ConeQP, constraints::AllConstraints, V=[], n=get_size(program.vars))
+    if isempty(constraints) == true
+        return []
     end
-    m, n, inds, num_rows = get_constraint_indices(program, constraints)
+    m, n, inds, num_rows = get_constraint_indices(program, constraints, n)
     if V == []
         V = zeros((m, n))
     end
     for (i, constraint) in enumerate(constraints)
-        if num_rows[i] == 1 # TODO refactor
-            v = get_constraint(program, constraint, zeros(n))
-            V[i, :] = v
-            set_link_constraints!(program, constraint, V[i, :])
-        else
-            v = get_constraint(program, constraint, zeros((num_rows[i], n)))
-            V[inds[i]+1:inds[i+1], :] = v
-            set_link_constraints!(program, constraint, V[inds[i]+1:inds[i+1], :])
-        end
+        v_alloc = num_rows[i] == 1 ? zeros(n) : zeros((num_rows[i], n))
+        row_inds = num_rows[i] == 1 ? i : inds[i]+1:inds[i+1]
+        set_row_indices!(program, constraint, V, v_alloc, row_inds)
     end
     return V
 end
@@ -382,26 +395,29 @@ end
 
 function get_inequality_constraint_matrix(program::ConeQP, allocated=false)
     ir = program.program_ir
-    for cone in program.cones
-        n = get_size(cone)
-        G = -Matrix{Float64}(I, n, n)
-        h = zeros(n)
-        add_inequality_constraint(program, cone, G, h)
-    end
-    G = get_constraint_matrix(program, ir._all_inequality_constraints)
+    vars = program.vars
+    # number of variables excludes additional slack variables
+    n = get_size(vars)
+    # add slack variables from intersecting constraints
+    aux_vars = program.aux_vars
+    append!(vars.cones, aux_vars.cones)
+    set_cones_inds(program)
+    # println("Get inequality matrix")
+    G = get_constraint_matrix(program, ir._all_inequality_constraints, [], n)
     h = vcat([constraint.rhs for constraint in ir._all_inequality_constraints]...)
     return G, h
 end
 
 function get_primal_objective(program::ConeQP)
+    vars = program.vars
     ir = program.program_ir
-    n = program.cones_inds[end]
+    n = get_size(vars)
     P = zeros((n, n))
     c = zeros(n)
     for obj in ir.obj
         cone = obj.cone
         k = findfirst(id -> id == objectid(cone), ir.ids_cones)
-        inds = program.cones_inds[k]+1:program.cones_inds[k+1]
+        inds = get_inds(vars, k)
         P[inds, inds] = obj.P
         c[inds] = obj.c
     end
@@ -444,29 +460,16 @@ export set_objective
 Add cone variable of size p to given program
 """
 function add_variable(program::ConeQP, cone::Cone, p::Int64)
+    vars = program.vars
     cone.p = p
-    if objectid(cone) in program.cones
+    if objectid(cone) in vars.cones
         return cone
     end
-    push!(program.cones, cone)
+    push!(vars.cones, cone)
     return cone
 end
 
 export add_variable
-
-function update_program(program::ConeQP)
-    set_cones_inds(program)
-    ir = program.program_ir
-    program.P = ir.quad_obj
-    program.c = ir.obj
-    program.A, program.b = get_affine_constraint_matrix(program, true)
-    program.G, program.h = get_inequality_constraint_matrix(program, true)
-    program.A = @view program.A[:, 1:program.cones_inds[end]]
-    program.G = @view program.G[:, 1:program.cones_inds[end]]
-    return program
-end
-
-export update_program
 
 """
     add_to_affine_constraint(constraint, cone, lhs)
@@ -518,9 +521,7 @@ Add to the program affine constraint ``lhs * x = rhs`` with respect to the cone
 function add_affine_constraint(program::ConeQP, cone::Cone, lhs::AbstractArray{Float64}, rhs::Union{AbstractArray{Float64}, Float64})
     ir = program.program_ir
     constraint = ConicExpression(cone, lhs, rhs)
-    push!(ir.affine_constraints, constraint)
     push!(ir._all_affine_constraints, constraint)
-    return ir.affine_constraints[end]
 end
 
 export add_affine_constraint
@@ -537,10 +538,17 @@ Add to the program inequality constraint ``lhs * x ≤ rhs`` with respect to the
 function add_inequality_constraint(program::ConeQP, cone::Cone, lhs::AbstractArray{Float64}, rhs::Union{AbstractArray{Float64}, Float64})
     ir = program.program_ir
     constraint = ConicExpression(cone, lhs, rhs)
-    push!(ir.inequality_constraints, constraint)
     push!(ir._all_inequality_constraints, constraint)
-    return ir.inequality_constraints[end]
 end
+
+function add_default_inequality_constraint(program::ConeQP, cone::Cone)
+    n = get_size(cone)
+    G = -Matrix{Float64}(I, n, n)
+    h = zeros(n)
+    add_inequality_constraint(program, cone, G, h)
+end
+
+export add_default_inequality_constraint
 
 function set_inequality_constraint(constraint::ConicExpression, cone::Cone, lhs::AbstractArray{Float64})
     add_to_affine_constraint(constraint, cone, lhs)
@@ -554,10 +562,11 @@ export set_affine_constraint
 export set_inequality_constraint
 
 function set_cones_inds(program::ConeQP)
-    program.cones_inds = [0]
-    for (_, cone) in enumerate(program.cones)
-        ind = program.cones_inds[end] + get_size(cone)
-        push!(program.cones_inds, ind)
+    vars = program.vars
+    vars.cones_inds = [0]
+    for (_, cone) in enumerate(vars.cones)
+        ind = vars.cones_inds[end] + get_size(cone)
+        push!(vars.cones_inds, ind)
     end
 end
 
@@ -599,10 +608,8 @@ function check_program(cone_qp::ConeQP)
         throw(DimensionMismatch("Number of rows of G does not equal h"))
     end
     cone_qp.is_feasibility_problem = (P != undef && !isnothing(P) && P != zeros(size(P)) || c != zeros(size(G)[2]))
-    if cone_qp.cones_inds == []
-        set_cones_inds(cone_qp)
-    end
-    if size(G, 1) != cone_qp.cones_inds[end]
+    set_cones_inds(cone_qp)
+    if size(G, 1) != get_size(cone_qp.vars)
         throw(DimensionMismatch("Number of rows of G does not equal total size of cones"))
     end
 end
@@ -701,8 +708,7 @@ function print_graphic()
 end
 
 function print_header()
-    # print_graphic()
-    println("Alexander Leong, 2025")
+    println("Alexander Leong, 2026")
     println("Version 0.0.3")
     println(repeat("-", 144))
 end

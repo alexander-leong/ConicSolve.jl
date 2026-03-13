@@ -54,7 +54,7 @@ mutable struct Solver
     limit_soln::Union{Float64, Nothing}
     log_level
     logger
-    max_iterations::Union{Int8, Nothing}
+    max_iterations::Union{Int32, Nothing}
     num_threads::Union{Int8, Nothing}
     obj_dual_value::Float64
     obj_primal_value::Float64
@@ -89,7 +89,7 @@ mutable struct Solver
                     tol_gap_abs=1e-2,
                     tol_gap_rel=1e-2,
                     tol_optimality=1e-2,
-                    max_iterations=100,
+                    max_iterations=200,
                     time_limit_sec=1e6,
                     η=0.0,
                     γ::Float64=1.0,
@@ -130,10 +130,15 @@ mutable struct Solver
     end
 end
 
+function set_default_logger(solver::Solver)
+    solver.logger = ConsoleLogger(stdout, Logging.Info)
+end
+
 function suppress_logging(solver::Solver)
     solver.logger = NullLogger()
 end
 
+export set_default_logger
 export suppress_logging
 
 """
@@ -322,39 +327,43 @@ end
 function update_cones(program::ConeQP,
                       s=nothing,
                       z=nothing)
-    for (k, cone) in enumerate(program.cones)
-        inds = program.cones_inds[k]
+    vars = program.vars
+    for (k, cone) in enumerate(vars.cones)
+        inds = vars.cones_inds[k]
         if isnothing(s)
-            s_vec = program.s[inds+1:program.cones_inds[k+1]]
+            s_vec = program.s[inds+1:vars.cones_inds[k+1]]
         else
-            s_vec = s[inds+1:program.cones_inds[k+1]]
+            s_vec = s[inds+1:vars.cones_inds[k+1]]
         end
         if isnothing(z)
-            z_vec = program.z[inds+1:program.cones_inds[k+1]]
+            z_vec = program.z[inds+1:vars.cones_inds[k+1]]
         else
-            z_vec = z[inds+1:program.cones_inds[k+1]]
+            z_vec = z[inds+1:vars.cones_inds[k+1]]
         end
         update(cone, s_vec, z_vec)
     end
 end
 
 function alpha_p(program::ConeQP)
-    α_vec = map(k -> alpha_p(k), program.cones)
+    vars = program.vars
+    α_vec = map(k -> alpha_p(k), vars.cones)
     return -α_vec[argmax(abs.(α_vec))]
 end
 
 function alpha_d(program::ConeQP)
-    α_vec = map(k -> alpha_d(k), program.cones)
+    vars = program.vars
+    α_vec = map(k -> alpha_d(k), vars.cones)
     return -minimum(α_vec)
 end
 
 function initialize_solver!(solver::Solver)
     program = solver.program
+    vars = program.vars
     G = @view program.G[:, :]
     program.s = zeros((size(G)[1]))
     program.z = zeros((size(G)[1]))
     e = []
-    for (_, cone) in enumerate(program.cones)
+    for (_, cone) in enumerate(vars.cones)
         e = vcat(e, get_e(cone))
     end
 
@@ -447,13 +456,14 @@ end
 function check_infeasibility(solver::Solver,
                              tol::Float64=1e-6)
     program = solver.program
+    vars = program.vars
     y_inds = program.inds_b
     A = program.A
     b = program.b
     y = program.KKT_x[y_inds]
     if norm(y) > 1/tol
-        inds = [get_indices_of_constraint(program, cone) for cone in program.cones]
-        y_is_relint = [is_convex_cone(cone, A[:, inds[i]]' * y, tol) for (i, cone) in enumerate(program.cones)]
+        inds = [get_indices_of_constraint(program, cone) for cone in vars.cones]
+        y_is_relint = [is_convex_cone(cone, A[:, inds[i]]' * y, tol) for (i, cone) in enumerate(vars.cones)]
         y_in_cone = all(y_is_relint) || true
         println("infeas: $(y_in_cone && b' * y - tol < 0)")
         return y_in_cone && b' * y - tol < 0
@@ -504,10 +514,11 @@ end
 function get_inv_weighted_mat(program::ConeQP,
                               V::AbstractArray{T},
                               transpose=false) where T <: Number
+    vars = program.vars
     ncols = length(size(V)) == 1 ? 1 : size(V)[2]
     inv_W_V = zeros(T, (size(V)[1], ncols))
-    for (k, cone) in enumerate(program.cones)
-        inds = program.cones_inds[k]+1:program.cones_inds[k+1]
+    for (k, cone) in enumerate(vars.cones)
+        inds = vars.cones_inds[k]+1:vars.cones_inds[k+1]
         Vi = @view V[inds, :]
         inv_W_V[inds, :] = get_inv_weighted_mat(cone, Vi, transpose)
     end
@@ -517,10 +528,11 @@ end
 function get_weighted_mat(program::ConeQP,
                           V::AbstractArray{T},
                           update_var=false) where T <: Number
+    vars = program.vars
     ncols = length(size(V)) == 1 ? 1 : size(V)[2]
     W_V = zeros(T, (size(V)[1], ncols))
-    for (k, cone) in enumerate(program.cones)
-        inds = program.cones_inds[k]+1:program.cones_inds[k+1]
+    for (k, cone) in enumerate(vars.cones)
+        inds = vars.cones_inds[k]+1:vars.cones_inds[k+1]
         Vi = @view V[inds, :]
         W_V[inds, :] = get_weighted_mat(cone, Vi)
         if update_var == true
@@ -579,9 +591,10 @@ function get_step_size(program::ConeQP,
                        Δz_scaled::AbstractArray{T},
                        α_div=1) where T <: Number
     # see page 12 (step 3. and 5.) and page 23 of coneprog.pdf for implementation
-    α = zeros(length(program.cones))
-    for (k, cone) in enumerate(program.cones)
-        inds = program.cones_inds[k]+1:program.cones_inds[k+1]
+    vars = program.vars
+    α = zeros(length(vars.cones))
+    for (k, cone) in enumerate(vars.cones)
+        inds = vars.cones_inds[k]+1:vars.cones_inds[k+1]
         αₖ = get_step_size(cone, Δs_scaled[inds], Δz_scaled[inds])
         α[k] = αₖ * α_div
     end
@@ -677,6 +690,21 @@ function get_iterative_combined_search_direction(solver::Solver,
     return Δs, Δs_scaled, Δz_scaled, Δx
 end
 
+function get_centrality_residual(program::ConeQP, μ::Float64)
+    circ_z_s = []
+    vars = program.vars
+    cones = [cone for cone in vars.cones]
+    s = [cone.s for cone in vars.cones]
+    z = [cone.z for cone in vars.cones]
+    args = zip(cones, z, s)
+    for arg in args
+        append!(circ_z_s, circ(arg...))
+    end
+    e = vcat([get_e(cone) for cone in vars.cones]...)
+    residual = norm(circ_z_s - (μ * e))
+    return residual
+end
+
 function evaluate_optimality_conditions(solver::Solver)
     i = solver.current_iteration
     program = solver.program
@@ -703,7 +731,8 @@ function evaluate_optimality_conditions(solver::Solver)
     
     # evaluate gap
     m = 0
-    for cone in program.cones
+    vars = program.vars
+    for cone in vars.cones
         m = m + degree(cone)
     end
     μ = s' * x[z_inds] / m
@@ -723,6 +752,8 @@ function evaluate_optimality_conditions(solver::Solver)
     push!(status.duality_gap, μ)
     push!(status.dual_obj, dual_obj)
     push!(status.primal_obj, pri_obj)
+    centrality_residual = get_centrality_residual(program, μ)
+    push!(status.residual_centrality, centrality_residual)
     push!(status.residual_x, norm(r_x))
     push!(status.residual_y, norm(r_y))
     push!(status.residual_z, norm(r_z))
@@ -855,19 +886,20 @@ function get_central_path(solver::Solver,
                           γ::Float64=1.0) where T <: Number
     kktsolver = solver.kktsolver
     program = solver.program
+    vars = program.vars
     z_inds = program.inds_h
 
     # get scaling factors
     # get_scaling_factors_elapsed_time = @elapsed begin
     λ = zeros(length(program.s))
     if current_itr == 1
-        for (k, cone) in enumerate(program.cones)
-            inds = program.cones_inds[k]+1:program.cones_inds[k+1]
+        for (k, cone) in enumerate(vars.cones)
+            inds = vars.cones_inds[k]+1:vars.cones_inds[k+1]
             cone.W, cone.inv_W, λ[inds] = get_scaling_vars(cone)
         end
     else
-        for (k, cone) in enumerate(program.cones)
-            inds = program.cones_inds[k]+1:program.cones_inds[k+1]
+        for (k, cone) in enumerate(vars.cones)
+            inds = vars.cones_inds[k]+1:vars.cones_inds[k+1]
             λ[inds] = cone.λ
         end
     end
@@ -894,7 +926,7 @@ function get_central_path(solver::Solver,
     if !isnothing(program.P)
         kktsystem.kkt_1_1 = program.P + kktsystem.kkt_1_1
     end
-    result = apply_iterative_refinement(solver, solver.iterative_refinement_max_iterations)
+    # result = apply_iterative_refinement(solver, solver.iterative_refinement_max_iterations)
     
     Δsₐ, Δsₐ_scaled, Δzₐ_scaled, Δxₐ = kktsolver.affine_search_direction(solver, G_scaled, kktsystem.kkt_1_1, inv_W_b_z)
     update_cones(program, Δsₐ, Δxₐ[z_inds])
@@ -926,8 +958,8 @@ function get_central_path(solver::Solver,
     b_z = KKT_b[z_inds]
     # see eq. 19a, 19b, 22a of coneprog.pdf
     KKT_b_z = @view program.KKT_b[z_inds]
-    for (k, cone) in enumerate(program.cones)
-        inds = program.cones_inds[k]+1:program.cones_inds[k+1]
+    for (k, cone) in enumerate(vars.cones)
+        inds = vars.cones_inds[k]+1:vars.cones_inds[k+1]
         b_z_k = @view b_z[inds]
         Δsₐ_scaled_k = @view Δsₐ_scaled[inds]
         Δzₐ_scaled_k = @view Δzₐ_scaled[inds]
@@ -956,8 +988,8 @@ function get_central_path(solver::Solver,
     update_iterates(program, Δs, Δx)
 
     # update scaling matrices and vars
-    for (k, cone) in enumerate(program.cones)
-        inds = program.cones_inds[k]+1:program.cones_inds[k+1]
+    for (k, cone) in enumerate(vars.cones)
+        inds = vars.cones_inds[k]+1:vars.cones_inds[k+1]
         Δs_scaled_k = @view Δs_scaled[inds]
         Δz_scaled_k = @view Δz_scaled[inds]
         update_scaling_vars(cone, Δs_scaled_k, Δz_scaled_k, program.α)

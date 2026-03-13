@@ -8,39 +8,56 @@ file in the root directory
 include("interface.jl")
 include("../program.jl")
 
-function parse_arg(program::ConeQP, arg::ConeEqualityConstraint)
-    ir = program.program_ir
-    push!(ir.affine_constraints, arg.v)
-    push!(ir._all_affine_constraints, arg.v)
-end
-
-function parse_arg(program::ConeQP, arg::ConeInequalityConstraint)
-    ir = program.program_ir
-    push!(ir.inequality_constraints, arg.v)
-    push!(ir._all_inequality_constraints, arg.v)
-end
-
 function parse_arg(program::ConeQP, arg::Cone)
     add_variable(program, arg, arg.p)
 end
 
-# function parse_arg(program::ConeQP, arg::Vector{Cone})
-#     ir = program.program_ir
-#     cone = arg[1]
-#     for cone in arg[2:end]
-#         intersecting_constraint = ConicExpression(cone, Matrix{Float64}(I, cone.p, cone.p), zeros(get_size(cone)))
-#         push!(ir._all_inequality_constraints, intersecting_constraint)
-#     end
-# end
+function parse_arg(program::ConeQP, arg::ConicExpression{<:Cone})
+    ir = program.program_ir
+    push!(ir._all_affine_constraints, arg)
+end
+
+function parse_arg(program::ConeQP, arg::IntersectingConstraint{<:Cone, <:Cone})
+    aux_vars = program.aux_vars
+    push!(aux_vars.cones, arg.cone)
+    ir = program.program_ir
+    push!(ir._all_inequality_constraints, arg.constraint)
+end
+
+function parse_arg(program::ConeQP, arg::NuclearNormConstraint)
+    remap_constraint(program, arg.constraint)
+end
+
+function parse_obj_arg(program::ConeQP, arg::ConicExpression{<:Cone})
+    set_objective(program, arg.lhs, arg.cone)
+    return arg
+end
+
+function parse_obj_arg(program::ConeQP, arg::Tuple{Vector{Float64}, IntersectingConstraint{<:Cone, <:Cone}})
+    c, intersecting_constraint = arg
+    set_objective(program, intersecting_constraint.constraint.cone, c)
+    parse_arg(program, intersecting_constraint)
+    return intersecting_constraint
+end
+
+function remap_constraint(program::ConeQP, arg::ConicExpression{PSDCone})
+end
 
 function define_program(program::ConeQP, obj::ObjectiveFunction, args...)
-    obj_terms = zip(obj.c, obj.cones)
-    for obj_term in obj_terms
-        set_objective(program, obj_term[2], obj_term[1])
+    # remapping_constraints = []
+    for obj_term in obj.args
+        parse_obj_arg(program, obj_term)
+        # if expression._remap_constraint == true
+            # push!(remapping_constraints, expression)
+        # end
+    end
+    vars = program.vars
+    for cone in vars.cones
+        add_default_inequality_constraint(program, cone)
     end
     for (i, arg) in enumerate(args)
         parse_arg(program, arg)
-        # FIXME, throw exception upon invalid expression
+        # FIXME: throw exception if invalid expression
         # else
         #     throw(ArgumentError("Invalid argument type $(typeof(arg)) at position $(i), must be either a [Cone, ConicExpression] type"))
         # end
@@ -48,10 +65,11 @@ function define_program(program::ConeQP, obj::ObjectiveFunction, args...)
 end
 
 function define_program(program::ConeQP, args...)
-    obj = ObjectiveFunction()
-    for cone in program.cones
-        push!(obj.c, zeros(Float64, get_size(cone)))
+    vars = program.vars
+    for cone in vars.cones
+        set_objective(program, cone, zeros(Float64, get_size(cone)))
     end
+    obj = ObjectiveFunction([])
     define_program(program, obj, args...)
 end
 
@@ -60,8 +78,9 @@ export define_program
 function build_program(program::ConeQP, allocated=false)
     set_cones_inds(program)
     
+    vars = program.vars
     ir = program.program_ir
-    ir.ids_cones = [objectid(cone) for cone in program.cones]
+    ir.ids_cones = [objectid(cone) for cone in vars.cones]
     P, c = get_primal_objective(program)
 
     A, b = get_affine_constraint_matrix(program)
@@ -73,6 +92,12 @@ function build_program(program::ConeQP, allocated=false)
     program.b = b
     program.c = c
     program.h = h
+    # println("size of A $(size(A))")
+    # println("size of G $(size(G))")
+    # println("size of P $(size(P))")
+    # println("size of b $(length(b))")
+    # println("size of c $(length(c))")
+    # println("size of h $(length(h))")
     return program
 end
 

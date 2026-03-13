@@ -68,6 +68,7 @@ mutable struct SolverStatus
     duality_gap::AbstractArray{Float64}
     dual_obj::AbstractArray{Float64}
     primal_obj::AbstractArray{Float64}
+    residual_centrality::AbstractArray{Float64}
     residual_x::AbstractArray{Float64}
     residual_y::AbstractArray{Float64}
     residual_z::AbstractArray{Float64}
@@ -86,6 +87,7 @@ mutable struct SolverStatus
         status.duality_gap = []
         status.dual_obj = []
         status.primal_obj = []
+        status.residual_centrality = []
         status.residual_x = []
         status.residual_y = []
         status.residual_z = []
@@ -110,7 +112,7 @@ function get_best_iterate(status::SolverStatus)
     rx_weight = 1
     ry_weight = 1
     rz_weight = 1
-    gap_weight = 16
+    gap_weight = 1
     solution_scores = []
     for (i, _) in enumerate(status.kkt_iterate)
         offset = length(status.kkt_iterate) - i + 1
@@ -153,7 +155,7 @@ function log_iteration_status(status::SolverStatus, header=false, i=0, additiona
     data = ["Iter." status.current_iteration;
     "Dual Res." status.residual_x[end-i];
     "Primal Res." status.residual_y[end-i];
-    "Cent. Res." status.residual_z[end-i];
+    "Cent. Res." status.residual_centrality[end-i];
     "Dual. Gap" status.duality_gap[end-i];
     "Primal Obj." status.primal_obj[end-i];
     "Dual Obj." status.dual_obj[end-i];
