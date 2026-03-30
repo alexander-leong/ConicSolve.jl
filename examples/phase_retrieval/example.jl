@@ -37,7 +37,6 @@ function get_problem_parameters(A, pinv_A, b, n)
     A[idx] .= 1
     b = ones(n)
     G = -1.0I(size(A)[2])
-    P = zeros((size(A)[2], size(A)[2]))
     c = svec(M)
     println(size(c))
     h = zeros(size(G)[1])
@@ -59,7 +58,7 @@ function warm_start_qp(data, n)
 
     cones::Vector{Cone} = []
     push!(cones, PSDCone(n))
-    cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
+    cone_qp = ConeQP(A, G, P, b, c, h, cones)
 
     s = data["s"]
     z = data["z"]
@@ -74,7 +73,7 @@ function get_qp(A, pinv_A, b, n)
     A, G, P, b, c, h = get_problem_parameters(A, pinv_A, b, n)
     cones::Vector{Cone} = []
     push!(cones, PSDCone(n))
-    cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
+    cone_qp = ConeQP(A, G, P, b, c, h, cones)
     return cone_qp
 end
 

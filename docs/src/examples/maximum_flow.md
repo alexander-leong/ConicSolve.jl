@@ -53,9 +53,35 @@ min_G = \begin{bmatrix}
 ```
 
 We need to define the set of flow conservation constraints, i.e. the sum of the flows into a node must equal the sum of the flows out of a node except for the source node and destination node. The notation ``I_{m->n}`` will determine the variables concerned. E.g. the conservation of flow for node 2 can be expressed as:
+
+``w_{12} = w_{25} + w_{26}``
+
+``w_{13} = w_{35} + w_{37}``
+
+``w_{14} = w_{46}``
+
+``w_{25} + w_{35} = w_{58}``
+
+``w_{26} + w_{46} + w_{36} = w_{68}``
+
+``w_{37} = w_{78}``
+
+The system of linear equations can be written by defining for example:
 ```math
-I_{1->2}*x_{1->2} = I_{2->5}*x_{2->5} + I_{2->6}*x_{2->6}
+x = \begin{bmatrix}
+w_{1}\\
+w_{2}\\
+w_{3}\\
+w_{4}\\
+w_{5}\\
+w_{6}\\
+w_{7}\\
+w_{8}
+\end{bmatrix}
 ```
+The matrix, ``A`` in the expression below is a matrix of 0s and 1s where 1 is the inbound edge to a node and -1 is an outbound edge from a node in the graph.
+
+``Ax = 0``
 
 #### Data Acquisition
 This is a simple toy problem setup. No data has been imported in this example.

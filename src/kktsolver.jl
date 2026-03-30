@@ -28,6 +28,16 @@ K = \\begin{bmatrix}
     A  & 0     & 0     \\\\
     G  & 0     & -W^TW \\\\
 \\end{bmatrix}
+
+K * \\begin{bmatrix}
+    x \\\\
+    y \\\\
+    z \\\\
+\\end{bmatrix} = \\begin{bmatrix}
+    c \\\\
+    b \\\\
+    h \\\\
+\\end{bmatrix}
 ```
 """
 mutable struct KKTSystem
@@ -44,7 +54,11 @@ mutable struct KKTSystem
         kktmat = new()
         kktmat.A = @view A[:, :]
         kktmat.G = @view G[:, :]
-        kktmat.P = P
+        if isnothing(P)
+            kktmat.P = P
+        else
+            kktmat.P = @view P[:, :]
+        end
         if length(size(A)) == 2 && A == isdiag(A)
             kktmat.Q, kktmat.R = Matrix(I, size(A)[1], size(A)[2]), A
         else
@@ -125,8 +139,8 @@ function get_solve_args(program)
 end
 
 function qp_solve(solver,
-                  G_scaled::AbstractArray{<:Number},
-                  inv_W_b_z::AbstractArray{<:Number},
+                  G_scaled::AbstractArray{Float64},
+                  inv_W_b_z::AbstractArray{Float64},
                   solve=qr_chol_solve)
     # page 498, 618 Boyd and Vandenberghe
     # page 29, coneprog.pdf

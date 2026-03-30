@@ -263,7 +263,7 @@ function initialize_solver!(A, b, c, dest, src, index_map, constraints, m, n)
 
     # Create an instance of the ConicSolve.jl solver with the input matrices
     # and conic constraint types, Float64 only supported for now.
-    cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
+    cone_qp = ConeQP(A, G, P, b, c, h, cones)
     dest.solver = Solver(cone_qp, "qrchol")
 end
 

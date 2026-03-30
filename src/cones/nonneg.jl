@@ -18,6 +18,10 @@ mutable struct NonNegativeOrthant <: Cone
     z
     λ
 
+    function NonNegativeOrthant()
+        return new()
+    end
+
     function NonNegativeOrthant(p)
         cone_nonneg = new()
         cone_nonneg.p = p
@@ -38,6 +42,8 @@ end
 function get_size(cone::NonNegativeOrthant)
     return cone.p
 end
+
+export get_size
 
 function get_inv_weighted_mat(cone::NonNegativeOrthant, V, transpose=false)
     return cone.inv_W * V
@@ -124,6 +130,10 @@ function get_d_s(cone::NonNegativeOrthant, s_scaled, z_scaled, b_z, γ, λ, μ, 
     dₛ = circ(cone, -λ, λ) - γ * circ(cone, s_scaled, z_scaled) + σ * μ * get_e(cone)
     b_z = b_z - get_weighted_mat(cone, diamond(λ, dₛ))
     return b_z
+end
+
+function is_convex_cone(cone::NonNegativeOrthant, x, etol=1e-3)
+    return all(x .>= -etol)
 end
 
 export NonNegativeOrthant

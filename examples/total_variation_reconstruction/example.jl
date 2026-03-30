@@ -61,7 +61,7 @@ function get_qp(n, x, λ)
     cones::Vector{Cone} = []
     push!(cones, NonNegativeOrthant(n-1))
     push!(cones, NonNegativeOrthant(n-1))
-    cone_qp = ConeQP{Float64, Float64, Float64}(A, G, P, b, c, h, cones)
+    cone_qp = ConeQP(A, G, P, b, c, h, cones)
     return cone_qp
 end
 
@@ -71,8 +71,9 @@ function run_example()
     x = sin.(0:0.1:8)[1:end-1] .+ rand(0:0.1:1, n)
     λ = 1 # smoothing parameter
     cone_qp = get_qp(n, x, λ)
-    # solver = Solver(cone_qp)
-    # status = run_solver(solver)
+    solver = Solver(cone_qp)
+    solver.max_iterations = 20
+    status = run_solver(solver)
     return x, cone_qp
 end
 
