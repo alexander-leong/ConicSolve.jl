@@ -208,10 +208,6 @@ function run_solver(solver::Solver, is_init=false, check=false, header=true, kwa
             end
             @info "Optimize called"
             BLAS.set_num_threads(solver.num_threads)
-            # if !isnothing(solver.cb_before_iteration)
-                # solver.cb_before_iteration(kwargs...)
-            # end
-
             initialize!(solver, is_init)
             if check == true
                 check_preconditions(solver)
@@ -260,9 +256,9 @@ function optimize_main!(solver::Solver, kwargs...)
     total_time_elapsed = 0
     @info "Executing main optimization loop"
     while true
-        # if !isnothing(solver.cb_before_iteration)
-        #     solver.cb_before_iteration(kwargs...)
-        # end
+        if !isnothing(solver.cb_before_iteration)
+            solver.cb_before_iteration(kwargs...)
+        end
         i = solver.current_iteration
         itr_time_elapsed = @elapsed begin
         result, r, μ = update_solver_status(solver)
