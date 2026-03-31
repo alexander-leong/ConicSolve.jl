@@ -10,6 +10,13 @@ Order = [:type, :function]
 Pages = ["nonneg.jl", "psdcone.jl", "soc.jl"]
 ```
 
+## Reduction Methods
+```@autodocs
+Modules = [ConicSolve]
+Order = [:type, :function]
+Pages = ["sos_sg.jl"]
+```
+
 ## SDP
 
 ```@autodocs

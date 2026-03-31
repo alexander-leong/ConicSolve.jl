@@ -5,9 +5,6 @@ This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.
 file in the root directory
 =#
 
-include("interface.jl")
-include("../program.jl")
-
 function parse_arg(program::ConeQP, arg::Cone)
     add_variable(program, arg, arg.p)
 end

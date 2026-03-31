@@ -15,10 +15,12 @@ makedocs(;
         "Readme" => "index.md",
         "Design" => "design.md",
         "Tutorial" => "tutorial.md",
+        "Algorithms" => ["algorithms/reduction_methods.md"],
         "Examples" => ["examples/maximum_flow.md",
                        "examples/phase_cut.md",
                        "examples/beamforming.md",
                        "examples/portfolio.md",
+                       "examples/quantum_control.md",
                        "examples/quantum_separability.md",
                        "examples/denoise.md",
                        "examples/total_variation_reconstruction.md",
@@ -36,7 +38,8 @@ makedocs(;
         )),
         prettyurls = false,
         repolink="https://github.com/alexander-leong/ConicSolve.jl",
-    )
+    ),
+    checkdocs=:none
 )
 
 deploydocs(

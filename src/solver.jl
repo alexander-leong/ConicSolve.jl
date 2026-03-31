@@ -8,8 +8,7 @@ file in the root directory
 """see CVXOPT Vandenberghe 2010 for Cone QP definition"""
 
 include("./debug.jl")
-include("./kktsolver.jl")
-include("frontend/compile.jl")
+include("./frontend/compile.jl")
 include("./status.jl")
 
 using LinearAlgebra

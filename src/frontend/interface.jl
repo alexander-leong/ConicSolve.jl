@@ -45,7 +45,6 @@ mutable struct ConicExpression{T<:Cone}
     rhs::Union{AbstractArray{Float64}, Float64}
 
     link_constraints::Vector{ConicExpression}
-    # _remap_constraint::Bool
     function ConicExpression(cone::T, lhs::Union{Float64, VecOrMat{Float64}}, rhs::Union{AbstractArray{Float64}, Float64}) where T <: Cone
         constraint = new{T}()
         constraint.cone = cone
@@ -53,33 +52,26 @@ mutable struct ConicExpression{T<:Cone}
         constraint.lhs = lhs
         constraint.rhs = rhs
         constraint.link_constraints = []
-        # constraint._remap_constraint = false
         return constraint
     end
 end
 
-export ConicExpression
-
 mutable struct IntersectingConstraint{T<:Cone, U<:Cone}
     cone::T
     constraint::ConicExpression{U}
-    # _remap_constraint::Bool
     function IntersectingConstraint(cone::T, constraint::ConicExpression{U}) where {T<:Cone, U<:Cone}
         obj = new{T, U}()
         obj.cone = cone
         obj.constraint = constraint
-        # obj._remap_constraint = false
         return obj
     end
 end
 
 mutable struct NuclearNormConstraint
     constraint::ConicExpression{PSDCone}
-    # _remap_constraint::Bool
     function NuclearNormConstraint(constraint::ConicExpression{PSDCone})
         obj = new()
         obj.constraint = constraint
-        # obj._remap_constraint = true
     end
 end
 
@@ -229,3 +221,5 @@ function Base.getindex(cone::T, inds::Union{UnitRange{Int64}, Int64}) where {T<:
     constraint.inds = inds
     return constraint
 end
+
+export ConicExpression

@@ -2,7 +2,7 @@
 
 julia_version = "1.11.6"
 manifest_format = "2.0"
-project_hash = "ebc0fa45fe2406e0c0a9701fe8b90caf8f22fefe"
+project_hash = "3bd1d0ff5957861de41444eaa41f3f0f3556872d"
 
 [[deps.ANSIColoredPrinters]]
 git-tree-sha1 = "574baf8110975760d391c710b6341da1afa48d8c"
@@ -47,6 +47,12 @@ deps = ["ANSIColoredPrinters", "AbstractTrees", "Base64", "CodecZlib", "Dates", 
 git-tree-sha1 = "d0ea2c044963ed6f37703cead7e29f70cba13d7e"
 uuid = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 version = "1.8.0"
+
+[[deps.DocumenterMermaid]]
+deps = ["Documenter", "MarkdownAST"]
+git-tree-sha1 = "c0c408289a505a15496d914b19204e272a7e8b0f"
+uuid = "a078cd44-4d9c-4618-b545-3ab9d77f9177"
+version = "0.2.0"
 
 [[deps.Downloads]]
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
