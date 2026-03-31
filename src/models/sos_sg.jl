@@ -6,6 +6,7 @@ file in the root directory
 =#
 
 using AbstractPermutations
+using ConicSolve
 using DynamicPolynomials
 using GroupsCore
 using LinearAlgebra
@@ -15,25 +16,21 @@ using StarAlgebras
 using SparseArrays
 using SymbolicWedderburn
 
-# TODO remove equality_constraint_indices!
 mutable struct SOS_Symmetric_Group
     basis
     basis_half
     basis_type
     deg
-    equality_constraint_indices
     f
     SOS_Symmetric_Group() = new()
     SOS_Symmetric_Group(basis,
                         basis_half,
                         basis_type,
                         deg,
-                        equality_constraint_indices,
                         f) = new(basis,
                             basis_half,
                             basis_type,
                             deg,
-                            equality_constraint_indices,
                             f)
 end
 
@@ -123,11 +120,68 @@ function get_monomial_basis(f, deg)
     return basis, basis_half
 end
 
-function wedderburn_decompose(program, f, n, x, num_additional_vars=0)
+"""
+    get_subproblem(in_program, cone)
+
+Constructs a program with objective and constraints with respect to the given cone.
+"""
+function get_subproblem(in_program::ConicSolve.ConeQP,
+                        cone::Cone)
+    # given initial problem, in_program, construct subproblem from constraints and objective with respect to given cone
+    out_program = ConicSolve.ConeQP()
+
+    affine_constraints = find_affine_constraints_by_cone(in_program, cone)
+    for constraint in affine_constraints
+        add_affine_constraint(out_program, cone, constraint.lhs, constraint.rhs)
+    end
+    inequality_constraints = find_inequality_constraints_by_cone(in_program, cone)
+    for constraint in inequality_constraints
+        add_inequality_constraint(out_program, cone, constraint.lhs, constraint.rhs)
+    end
+
+    inds = get_indices_of_constraint(in_program, cone)
+    obj = in_program.c[inds]
+    set_objective(out_program, cone, obj)
+
+    add_variable(out_program, cone, cone.p)
+
+    out_program = build_program(out_program, true)
+    return out_program
+end
+
+export get_subproblem
+
+"""
+    wedderburn_decompose(program, f, n, x, num_additional_vars=0)
+
+Performs a Wedderburn Decomposition on the polynomial function f with respect to Symmetric Group n and variable x.
+
+Example
+```julia
+n = 4
+
+f =
+    1 +
+    sum(x .+ 1) +
+    sum((x .+ 1) .^ 2)^4 +
+    sum((x .+ x') .^ 2)^2 * sum((x .+ 1) .^ 2)
+
+program = ConeQP()
+summands, sos_symmetric_group = wedderburn_decompose(program, f, n, x)
+```
+Returns
+- the summands object for the change of basis between the monomial basis and fixed-point subspace.
+- the SOS symmetric group object corresponding to the wedderburn decomposition
+"""
+function wedderburn_decompose(program::ConeQP,
+                              f::DynamicPolynomials.Polynomial,
+                              n::Int,
+                              x,
+                              num_additional_vars=0)
     deg = DynamicPolynomials.maxdegree(f)
-    println("### STEP 1: SYMMETRY REDUCTION ###")
-    println("Polynomial function f has degree: $(deg)")
-    println("Symmetric Group $(n)")
+    @info "### Executing Symmetry Reduction ###"
+    @info "Polynomial function f has degree: $(deg)"
+    @info "Symmetric Group $(n)"
     basis, basis_half = get_monomial_basis(f, deg)
 
 	pg = PermGroup([perm"(1,2)", Perm([2:n; 1])])
@@ -144,8 +198,8 @@ function wedderburn_decompose(program, f, n, x, num_additional_vars=0)
 	end
 	M_orb = similar(M, eltype(wedderburn))
 
-    psds = SymbolicWedderburn.direct_summands(wedderburn)
-    num_vars = Int(sum([size(psd, 1) * (size(psd, 1) + 1) / 2 for psd in psds]))
+    summands = SymbolicWedderburn.direct_summands(wedderburn)
+    num_vars = Int(sum([size(psd, 1) * (size(psd, 1) + 1) / 2 for psd in summands]))
 
     total_num_vars = num_vars + num_additional_vars
     program.A = Matrix{Float64}(undef, 0, Int(total_num_vars))
@@ -167,12 +221,11 @@ function wedderburn_decompose(program, f, n, x, num_additional_vars=0)
         basis_half,
         "monomial",
         deg,
-        equality_constraint_indices,
         f
     )
     
-    println("End of decompose, returning...")
-    return num_vars, psds, sos_symmetric_group
+    @info "End of decompose, returning..."
+    return summands, sos_symmetric_group
 end
 
 function get_mat_vec_len(psds)
@@ -181,6 +234,15 @@ function get_mat_vec_len(psds)
     return n_i
 end
 
+"""
+    get_reduced_solution(summands, xs)
+
+# Parameters:
+* `summands`: The DirectSummands data structure returned by wedderburn_decompose
+* `xs`: The vector of solution vectors to each subproblem
+
+Gets the solution in terms of the original basis.
+"""
 function get_reduced_solution(summands, xs)
     n = size(summands[1], 2)
     result = zeros((n, n))

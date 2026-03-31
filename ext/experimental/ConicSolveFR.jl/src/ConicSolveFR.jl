@@ -168,29 +168,6 @@ function reduce_cone(solver::ConicSolve.Solver, cone::Cone, orig_obj, tol=1e-1, 
     return Us, i, reduced_cone, reduced_obj, reduced_program, reduced_status
 end
 
-function get_subproblem(in_program::ConicSolve.ConeQP, cone::Cone)
-    # given initial problem, in_program, construct subproblem from constraints and objective with respect to given cone
-    out_program = ConicSolve.ConeQP()
-
-    affine_constraints = find_affine_constraints_by_cone(in_program, cone)
-    for constraint in affine_constraints
-        add_affine_constraint(out_program, cone, constraint.lhs, constraint.rhs)
-    end
-    inequality_constraints = find_inequality_constraints_by_cone(in_program, cone)
-    for constraint in inequality_constraints
-        add_inequality_constraint(out_program, cone, constraint.lhs, constraint.rhs)
-    end
-
-    inds = get_indices_of_constraint(in_program, cone)
-    obj = in_program.c[inds]
-    set_objective(out_program, cone, obj)
-
-    add_variable(out_program, cone, cone.p)
-
-    out_program = build_program(out_program, true)
-    return out_program
-end
-
 function reduce_cone_program(orig_solver::ConicSolve.Solver, cone::Cone, store_iterates=false, tol=2e-2, truncation_tol=1e-3)
     reduced_status = nothing
     out_program = get_subproblem(orig_solver.program, cone)
@@ -254,7 +231,23 @@ function reproject_to_original_form(Us, x)
     return reproj_x
 end
 
-function run_fr_solver(solver::ConicSolve.Solver, store_iterates=false, tol=2e-2, truncation_tol=1e-3)
+"""
+    run_fr_solver(solver, store_iterates, tol, truncation_tol)
+
+Runs face reduction algorithm on the problem given by the solver.
+
+# Parameters:
+* `solver`: The solver used with the given problem
+* `store_iterates`: Set to true to return a vector of solutions corresponding to each iterate
+* `tol`: absolute tolerance to determine exposed face (using duality gap)
+* `truncation_tol`: absolute tolerance to remove near redundant constraints
+
+Returns the solutions for each subproblem and corresponding solvers used for each subproblem
+"""
+function run_fr_solver(solver::ConicSolve.Solver,
+                       store_iterates=false,
+                       tol=2e-2,
+                       truncation_tol=1e-3)
     # perform facial reduction on solver problem
     problem = FacialReduction()
     problem.solver = solver
@@ -265,20 +258,20 @@ function run_fr_solver(solver::ConicSolve.Solver, store_iterates=false, tol=2e-2
     vars = in_program.vars
     x = []
     reduced_status = nothing
-    solvers_status = []
+    reduced_solvers = []
     for i = 1:length(vars.cones)
         cone = vars.cones[i]
         @info "Performing face reduction on cone $(i) of $(length(vars.cones))"
-        x_i, reduced_status, solver_status = reduce_cone_program(solver, cone, store_iterates, tol, truncation_tol)
+        x_i, reduced_status, reduced_solver = reduce_cone_program(solver, cone, store_iterates, tol, truncation_tol)
         if !(reduced_status in [REDUCED_PROBLEM_OPTIMAL, WEAK_CONSTRAINT])
             @info "Face reduction unsuccessful $(reduced_status)"
             return
         end
         push!(x, x_i)
-        push!(solvers_status, solver_status)
+        push!(reduced_solvers, reduced_solver)
     end
     println("Face reduction completed")
-    return x, solvers_status
+    return x, reduced_solvers
 end
 
 export run_fr_solver
