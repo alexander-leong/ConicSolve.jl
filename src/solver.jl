@@ -82,7 +82,7 @@ mutable struct Solver
     """
     function Solver(program::Union{ConeQP, Missing}=missing,
                     kktsolve="qrchol",
-                    preconditioner="none",
+                    preconditioner="ruiz",
                     limit_obj=-Inf,
                     limit_soln=0,
                     tol_gap_abs=1e-2,
@@ -100,7 +100,7 @@ mutable struct Solver
         solver.current_iteration = 1
         solver.device = CPU
         solver.iterative_refinement_max_iterations = 1
-        solver.iterative_refinement_trigger_mode = ITERATIVE_REFINEMENT_DEFAULT_TRIGGER_MODE
+        solver.iterative_refinement_trigger_mode = NO_ITERATIVE_REFINEMENT
         solver.kktsolver = setup_default_kkt_solver(kktsolve, preconditioner)
         if !ismissing(program)
             check_program(program)
@@ -308,6 +308,8 @@ function log_solver_parameters(solver::Solver)
         lpad("Preferred device: ", pad, " ") solver.device;
         lpad("Iterative Refinement Max Iterations: ", pad, " ") solver.iterative_refinement_max_iterations;
         lpad("Iterative Refinement Trigger Mode: ", pad, " ") solver.iterative_refinement_trigger_mode;
+        lpad("Presolve Regularization Method:", pad, " ") solver.presolve_regularization_method;
+        lpad("Presolve Scaling (Equilibration) Method:", pad, " ") solver.presolve_scaling_method;
         lpad("System Solver KKT method: ", pad, " ") solver.kktsolver.kktsolve["label"];
         lpad("Time limit (seconds): ", pad, " ") solver.time_limit_sec;
         lpad("Tolerance gap absolute: ", pad, " ") solver.tol_gap_abs;
@@ -481,13 +483,17 @@ function is_optimal(solver::Solver,
                     gap_rtol::Float64,
                     tol::Float64)
     status = solver.status
+    r0 = status.residual_x[end] <= tol &&
+    status.residual_y[end] <= tol &&
+    status.residual_z[end] <= tol
+
     r1 = check_feasibility(solver, tol)
 
     r2 = check_duality_gap(μ, gap_atol, gap_rtol)
 
     # stopping criteria based on
     # https://www.seas.ucla.edu/~vandenbe/ee236a/lectures/mpc.pdf
-    if r1 && r2 == true
+    if r0 && r1 && r2 == true
         status.status_termination = OPTIMAL
         return true
     end
