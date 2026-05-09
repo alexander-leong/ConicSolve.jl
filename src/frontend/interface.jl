@@ -9,12 +9,16 @@ import Base.:*
 import Base.:+
 import Base.:-
 import Base.==
+import Base.<=
+import Base.>=
 import Base.:∈
 import Base.:∩
 
 import Base.:in
 
+using DynamicPolynomials
 using LinearAlgebra
+using PermutationGroups
 
 """
     ConicExpression
@@ -56,6 +60,18 @@ mutable struct ConicExpression{T<:Cone}
     end
 end
 
+mutable struct PSDExpression
+    expression::ConicExpression
+
+    function PSDExpression(lhs::Union{Float64, VecOrMat{Float64}}, rhs::Union{AbstractArray{Float64}, Float64})
+        cone = PSDCone(length(rhs))
+        expression = ConicExpression(cone, lhs, rhs)
+        constraint = new()
+        constraint.expression = expression
+        return constraint
+    end
+end
+
 mutable struct IntersectingConstraint{T<:Cone, U<:Cone}
     cone::T
     constraint::ConicExpression{U}
@@ -72,6 +88,23 @@ mutable struct NuclearNormConstraint
     function NuclearNormConstraint(constraint::ConicExpression{PSDCone})
         obj = new()
         obj.constraint = constraint
+        return obj
+    end
+end
+
+mutable struct SymmetricGroup
+    f::DynamicPolynomials.Polynomial
+    n::Int
+    function SymmetricGroup(f, n)
+        obj = new()
+        obj.f = f
+        obj.n = n
+        return obj
+    end
+    function SymmetricGroup(n)
+        obj = new()
+        obj.n = n
+        return obj
     end
 end
 
@@ -199,6 +232,10 @@ function Base.:in(constraint::ConicExpression{PSDCone}, V::Matrix{Float64})
     return constraint
 end
 
+function Base.:in(f::DynamicPolynomials.Polynomial, T::SymmetricGroup)
+    return SymmetricGroup(f, T.n)
+end
+
 function Base.:(==)(expression::ConicExpression{T}, rhs::Union{AbstractArray{Float64}, Float64}) where T<:Cone
     expression.rhs = rhs
     return expression
@@ -213,6 +250,22 @@ end
 function Base.:(==)(cone::T, rhs::Vector{Float64}) where T<:Cone
     n = get_size(cone)
     constraint = ConicExpression(cone, Matrix{Float64}(I, n, n), rhs)
+    return constraint
+end
+
+function Base.:(<=)(p::DynamicPolynomials.Polynomial, rhs::Float64)
+    A, b, n, _ = get_polynomial_equality_constraint_from_coefficients(p, -rhs)
+    cone = PSDCone(n)
+    constraint = PSDExpression(A, -b)
+    constraint.expression.cone = cone
+    return constraint
+end
+
+function Base.:(>=)(p::DynamicPolynomials.Polynomial, rhs::Float64)
+    A, b, n, _ = get_polynomial_equality_constraint_from_coefficients(p, rhs)
+    cone = PSDCone(n)
+    constraint = PSDExpression(A, b)
+    constraint.expression.cone = cone
     return constraint
 end
 

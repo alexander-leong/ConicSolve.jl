@@ -239,7 +239,7 @@ end
 Get vectorized diagonal indices.
 For example, the following entries returned:
 idx = [1, 5, 8, 10] correspond to the matrix of n=4:
-[1 2 3 4; 2 5 6 7; 4 7 9 10]
+[1 2 3 4; 2 5 6 7; 3 6 8 9; 4 7 9 10]
 """
 function get_diagonal_idx(n)
     idx = []

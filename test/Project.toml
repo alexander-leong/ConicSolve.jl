@@ -1,4 +1,7 @@
 [deps]
+ConicSolve = "1a4286b3-6f5e-4030-bb00-6db9fd4bd7fc"
+ConicSolveFR = "b7e36175-acd1-4b95-9993-0abe5f8513c4"
+DynamicPolynomials = "7c1d4256-1411-5781-91ec-d7bc3513ac07"
 JLD = "4138dd39-2aa7-5051-a626-17a0bb65d9c8"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
