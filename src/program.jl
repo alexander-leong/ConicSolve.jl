@@ -172,6 +172,7 @@ mutable struct ConeQP
         cone_qp.c = c
         cone_qp.h = h
         cone_qp.vars = ConicVariables()
+        cone_qp.vars.cones = cones
         cone_qp.aux_vars = ConicVariables()
         return cone_qp
     end
@@ -223,6 +224,16 @@ end
 
 export ConeQP
 
+mutable struct SymmetryReducedConeQP{T}
+    cone_qp::ConeQP
+    group::T
+    summands
+    wedderburn
+    _active_summands::Vector{Int}
+end
+
+export SymmetryReducedConeQP
+
 function find_constraints(constraints, predicate)
     match_constraints = []
     for (i, constraint) in enumerate(constraints)
@@ -237,7 +248,7 @@ end
     find_affine_constraints(program, predicate)
 
 Returns a list of affine constraints in the given program that satisfy the predicate.
-The predicate is a function that takes a ``ConicExpression`` and returns true or false.
+The predicate is a function that takes a *ConicExpression* and returns true or false.
 """
 function find_affine_constraints(program::ConeQP, predicate)
     ir = program.program_ir
@@ -248,7 +259,7 @@ end
     find_inequality_constraints(program, predicate)
 
 Returns a list of inequality constraints in the given program that satisfy the predicate.
-The predicate is a function that takes a ``ConicExpression`` and returns true or false.
+The predicate is a function that takes a *ConicExpression* and returns true or false.
 """
 function find_inequality_constraints(program::ConeQP, predicate)
     ir = program.program_ir
@@ -475,7 +486,7 @@ export add_variable
     add_to_affine_constraint(constraint, cone, lhs)
 
 Sets the elements of the left hand side, *lhs* of an existing (affine or inequality) constraint with respect to a different cone.
-Used to define a constraint that is "jointly linked" between variables in constraint.cone and cone.
+Used to define a constraint involving multiple variables in constraint.cone and cone.
 
 Example:
 ```math
@@ -561,13 +572,18 @@ export add_inequality_constraint
 export set_affine_constraint
 export set_inequality_constraint
 
+function get_cones_inds(cones::Vector{Cone})
+    cones_inds = [0]
+    for (_, cone) in enumerate(cones)
+        ind = cones_inds[end] + get_size(cone)
+        push!(cones_inds, ind)
+    end
+    return cones_inds
+end
+
 function set_cones_inds(program::ConeQP)
     vars = program.vars
-    vars.cones_inds = [0]
-    for (_, cone) in enumerate(vars.cones)
-        ind = vars.cones_inds[end] + get_size(cone)
-        push!(vars.cones_inds, ind)
-    end
+    vars.cones_inds = get_cones_inds(vars.cones)
 end
 
 function check_program(cone_qp::ConeQP)
@@ -609,8 +625,9 @@ function check_program(cone_qp::ConeQP)
     end
     cone_qp.is_feasibility_problem = (P != undef && !isnothing(P) && P != zeros(size(P)) || c != zeros(size(G)[2]))
     set_cones_inds(cone_qp)
-    if size(G, 1) != get_size(cone_qp.vars)
-        throw(DimensionMismatch("Number of rows of G does not equal total size of cones"))
+    total_size = get_size(cone_qp.vars)
+    if size(G, 1) != total_size
+        throw(DimensionMismatch("Number of rows of G, $(size(G, 1)) does not equal total size of cones, $(total_size)"))
     end
 end
 

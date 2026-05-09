@@ -1,4 +1,5 @@
 using ConicSolve
+using DynamicPolynomials
 using Test
 
 @testset "matrix multiply variable" begin
@@ -139,7 +140,6 @@ end
     A::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
         0. 1. 0. 1. 0. 1.;
         0. 0. 1. 1. 0. 1.]
-    b::Vector{Float64} = [1., 2., 3.]
 
     define_program(program,
                 A * x in NonNegativeOrthant(6))
@@ -154,7 +154,6 @@ end
     A::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
         0. 1. 0. 1. 0. 1.;
         0. 0. 1. 1. 0. 1.]
-    b::Vector{Float64} = [1., 2., 3.]
 
     define_program(program,
                 A * x in SecondOrderCone(6))
@@ -169,10 +168,25 @@ end
     A::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
         0. 1. 0. 1. 0. 1.;
         0. 0. 1. 1. 0. 1.]
-    b::Vector{Float64} = [1., 2., 3.]
 
     define_program(program,
                 A * x in PSDCone(6))
+    program = build_program(program)
+end
+
+@testset "expression in symmetric group" begin
+    program = ConeQP()
+    N = 4
+    @polyvar x[1:N]
+    f =
+        1. +
+        sum(x .+ 1.) +
+        sum((x .+ 1.) .^ 2)^4 +
+        sum((x .+ x') .^ 2)^2 * sum((x .+ 1.) .^ 2)
+    define_program(program,
+                   minimize(f),
+                   f ∈ ConicSolve.SymmetricGroup(N))
+    
     program = build_program(program)
 end
 

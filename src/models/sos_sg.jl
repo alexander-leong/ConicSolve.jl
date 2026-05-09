@@ -16,24 +16,6 @@ using StarAlgebras
 using SparseArrays
 using SymbolicWedderburn
 
-mutable struct SOS_Symmetric_Group
-    basis
-    basis_half
-    basis_type
-    deg
-    f
-    SOS_Symmetric_Group() = new()
-    SOS_Symmetric_Group(basis,
-                        basis_half,
-                        basis_type,
-                        deg,
-                        f) = new(basis,
-                            basis_half,
-                            basis_type,
-                            deg,
-                            f)
-end
-
 function SymbolicWedderburn.action(a::SymbolicWedderburn.Action, el::GroupElement, poly::DynamicPolynomials.AbstractPolynomial)
     return sum(SymbolicWedderburn.action(a, el, term) for term in DynamicPolynomials.terms(poly))
 end
@@ -151,12 +133,37 @@ end
 
 export get_subproblem
 
-"""
-    wedderburn_decompose(program, f, n, x, num_additional_vars=0)
+mutable struct PolynomialFunction
+    basis
+    basis_half
+    basis_type
+    deg
+    f
+    PolynomialFunction() = new()
+    PolynomialFunction(basis,
+                        basis_half,
+                        basis_type,
+                        deg,
+                        f) = new(basis,
+                            basis_half,
+                            basis_type,
+                            deg,
+                            f)
+end
 
-Performs a Wedderburn Decomposition on the polynomial function f with respect to Symmetric Group n and variable x.
+mutable struct SymmetricGroupAction
+    f::PolynomialFunction
+    g::SymmetricGroup
+    pg::PermGroup
+end
+
+"""
+    wedderburn_decompose!(program, group)
+
+Performs a Wedderburn Decomposition on Symmetric Group n evaluated on a polynomial function f.
 
 Example
+For a 4th order SOS polynomial function, f
 ```julia
 n = 4
 
@@ -165,26 +172,28 @@ f =
     sum(x .+ 1) +
     sum((x .+ 1) .^ 2)^4 +
     sum((x .+ x') .^ 2)^2 * sum((x .+ 1) .^ 2)
+group = SymmetricGroup(f, n)
 
 program = ConeQP()
-summands, sos_symmetric_group = wedderburn_decompose(program, f, n, x)
+symmetry_reduced_qp = wedderburn_decompose!(program, group)
 ```
 Returns
-- the summands object for the change of basis between the monomial basis and fixed-point subspace.
-- the SOS symmetric group object corresponding to the wedderburn decomposition
+Symmetry reduced cone program with:
+- the permutation group action and basis defining the symmetry reduction
+- the summands object for the change of basis between the monomial basis and fixed-point subspace
+- the wedderburn decomposition performed
 """
-function wedderburn_decompose(program::ConeQP,
-                              f::DynamicPolynomials.Polynomial,
-                              n::Int,
-                              x,
-                              num_additional_vars=0)
-    deg = DynamicPolynomials.maxdegree(f)
+function wedderburn_decompose!(program::ConeQP,
+                               group::SymmetricGroup)
+    num_additional_vars=0
+    x = variables(group.f)
+    deg = DynamicPolynomials.maxdegree(group.f)
     @info "### Executing Symmetry Reduction ###"
     @info "Polynomial function f has degree: $(deg)"
-    @info "Symmetric Group $(n)"
-    basis, basis_half = get_monomial_basis(f, deg)
+    @info "Symmetric Group $(group.n)"
+    basis, basis_half = get_monomial_basis(group.f, deg)
 
-	pg = PermGroup([perm"(1,2)", Perm([2:n; 1])])
+	pg = PermGroup([perm"(1,2)", Perm([2:group.n; 1])])
 	wedderburn = WedderburnDecomposition(
 		Float64,
 		pg,
@@ -205,7 +214,7 @@ function wedderburn_decompose(program::ConeQP,
     program.A = Matrix{Float64}(undef, 0, Int(total_num_vars))
 
     basis_constraints = SymbolicWedderburn.basis(wedderburn)
-    C = DynamicPolynomials.coefficients(f, basis_constraints)
+    C = DynamicPolynomials.coefficients(group.f, basis_constraints)
     
     ivs = SymbolicWedderburn.invariant_vectors(wedderburn)
     equality_constraint_indices = Dict()
@@ -216,16 +225,17 @@ function wedderburn_decompose(program::ConeQP,
         set_A_i!(program, Mπs, c, equality_constraint_indices)
     end
 
-    sos_symmetric_group = SOS_Symmetric_Group(
+    polynomial_fn = PolynomialFunction(
         basis,
         basis_half,
         "monomial",
         deg,
-        f
+        group.f
     )
     
     @info "End of decompose, returning..."
-    return summands, sos_symmetric_group
+    group_action = SymmetricGroupAction(polynomial_fn, group, pg)
+    return SymmetryReducedConeQP(program, group_action, summands, wedderburn, Vector{Int}([]))
 end
 
 function get_mat_vec_len(psds)
@@ -234,28 +244,38 @@ function get_mat_vec_len(psds)
     return n_i
 end
 
-"""
-    get_reduced_solution(summands, xs)
+function get_summands_inds(summands, inds::Vector{Int})
+    summands_inds = [0]
+    for (i, idx) in enumerate(inds)
+        n = get_size(PSDCone(size(summands[idx], 1)))
+        push!(summands_inds, n)
+        summands_inds[i] += 1
+    end
+    summands_inds[1] = 1
+    return summands_inds
+end
 
-# Parameters:
-* `summands`: The DirectSummands data structure returned by wedderburn_decompose
-* `xs`: The vector of solution vectors to each subproblem
-
-Gets the solution in terms of the original basis.
 """
-function get_reduced_solution(summands, xs)
+    get_solution(program)
+
+Gets the solution to the symmetry reduced cone program in terms of the original basis.
+"""
+function get_solution(program::SymmetryReducedConeQP)
+    summands = program.summands
+    xs = get_solution(program.cone_qp)
     n = size(summands[1], 2)
     result = zeros((n, n))
-    for (summand, x) in zip(summands, xs)
-        result += summand' * mat(x) * summand
+    cones_inds = get_summands_inds(summands, program._active_summands)
+    for (i, idx) in enumerate(program._active_summands)
+        inds = cones_inds[i]:cones_inds[i+1]
+        result += summands[idx]' * mat(xs[inds]) * summands[idx]
     end
     return result
 end
 
-export SOS_Symmetric_Group
-export wedderburn_decompose
+export PolynomialFunction
+export wedderburn_decompose!
 export get_constraint
 export get_mat_dim
 export get_mat_from_lt_vec
-export get_reduced_solution
 export get_vec_from_lt_mat

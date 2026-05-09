@@ -180,18 +180,18 @@ function within_tol(abs_tol, rel_tol, value)
     return false
 end
 
+function get_solution(program::ConeQP)
+    x_inds = program.inds_c
+    return program.KKT_x[x_inds]
+end
+
 """
     get_solution(solver)
 
 Get the solution to the optimization problem.
 """
 function get_solution(solver::Solver)
-    x_inds = solver.program.inds_c
-    if solver.presolve_scaling_method == "ruiz"
-        C = solver.presolve_equilibration_column_scaling
-        return C * solver.program.KKT_x[x_inds]
-    end
-    return solver.program.KKT_x[x_inds]
+    return get_solution(solver.program)
 end
 
 """
@@ -212,6 +212,12 @@ function run_solver(solver::Solver, is_init=false, check=false, header=true, kwa
                 check_preconditions(solver)
             end
             result = optimize_main!(solver, kwargs...)
+            # restore solution
+            x_inds = solver.program.inds_c
+            if solver.presolve_scaling_method == "ruiz"
+                C = solver.presolve_equilibration_column_scaling
+                return C * solver.program.KKT_x[x_inds]
+            end
             return result
         end
     catch err

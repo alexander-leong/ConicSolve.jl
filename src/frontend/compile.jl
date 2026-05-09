@@ -7,11 +7,19 @@ file in the root directory
 
 function parse_arg(program::ConeQP, arg::Cone)
     add_variable(program, arg, arg.p)
+    return program
 end
 
 function parse_arg(program::ConeQP, arg::ConicExpression{<:Cone})
     ir = program.program_ir
     push!(ir._all_affine_constraints, arg)
+    return program
+end
+
+function parse_arg(program::ConeQP, arg::PSDExpression)
+    add_variable(program, arg.expression.cone, arg.expression.cone.p)
+    parse_arg(program, arg.expression)
+    return program
 end
 
 function parse_arg(program::ConeQP, arg::IntersectingConstraint{<:Cone, <:Cone})
@@ -19,46 +27,61 @@ function parse_arg(program::ConeQP, arg::IntersectingConstraint{<:Cone, <:Cone})
     push!(aux_vars.cones, arg.cone)
     ir = program.program_ir
     push!(ir._all_inequality_constraints, arg.constraint)
+    return program
+end
+
+function remap_constraint(program::ConeQP, arg::ConicExpression{PSDCone})
 end
 
 function parse_arg(program::ConeQP, arg::NuclearNormConstraint)
     remap_constraint(program, arg.constraint)
+    return program
+end
+
+function parse_arg(program::ConeQP, arg::SymmetricGroup)
+    program = wedderburn_decompose!(program, arg)
+    return program
 end
 
 function parse_obj_arg(program::ConeQP, arg::ConicExpression{<:Cone})
     set_objective(program, arg.lhs, arg.cone)
-    return arg
+    return program
+end
+
+function parse_obj_arg(program::ConeQP, arg::DynamicPolynomials.Polynomial)
+    vars = program.vars
+    for cone in vars.cones
+        set_objective(program, cone, ones(get_size(cone)))
+    end
+    return program
+end
+
+function parse_obj_arg(program::SymmetryReducedConeQP{SymmetricGroupAction}, arg::DynamicPolynomials.Polynomial)
+    cone_qp = parse_obj_arg(program.cone_qp, arg)
+    program.cone_qp = cone_qp
+    return program
 end
 
 function parse_obj_arg(program::ConeQP, arg::Tuple{Vector{Float64}, IntersectingConstraint{<:Cone, <:Cone}})
     c, intersecting_constraint = arg
     set_objective(program, intersecting_constraint.constraint.cone, c)
     parse_arg(program, intersecting_constraint)
-    return intersecting_constraint
-end
-
-function remap_constraint(program::ConeQP, arg::ConicExpression{PSDCone})
+    return program
 end
 
 function define_program(program::ConeQP, obj::ObjectiveFunction, args...)
-    # remapping_constraints = []
+    out_program = program
+    for arg in args
+        out_program = parse_arg(program, arg)
+    end
     for obj_term in obj.args
-        parse_obj_arg(program, obj_term)
-        # if expression._remap_constraint == true
-            # push!(remapping_constraints, expression)
-        # end
+        out_program = parse_obj_arg(out_program, obj_term)
     end
     vars = program.vars
     for cone in vars.cones
         add_default_inequality_constraint(program, cone)
     end
-    for (i, arg) in enumerate(args)
-        parse_arg(program, arg)
-        # FIXME: throw exception if invalid expression
-        # else
-        #     throw(ArgumentError("Invalid argument type $(typeof(arg)) at position $(i), must be either a [Cone, ConicExpression] type"))
-        # end
-    end
+    return out_program
 end
 
 function define_program(program::ConeQP, args...)
@@ -67,7 +90,7 @@ function define_program(program::ConeQP, args...)
         set_objective(program, cone, zeros(Float64, get_size(cone)))
     end
     obj = ObjectiveFunction([])
-    define_program(program, obj, args...)
+    return define_program(program, obj, args...)
 end
 
 export define_program
@@ -81,7 +104,6 @@ function build_program(program::ConeQP, allocated=false)
     P, c = get_primal_objective(program)
 
     A, b = get_affine_constraint_matrix(program)
-    # println("Condition number of equality constraint matrix: $(cond(A))")
     G, h = get_inequality_constraint_matrix(program, allocated)
     program.A = A
     program.G = G
@@ -89,12 +111,11 @@ function build_program(program::ConeQP, allocated=false)
     program.b = b
     program.c = c
     program.h = h
-    # println("size of A $(size(A))")
-    # println("size of G $(size(G))")
-    # println("size of P $(size(P))")
-    # println("size of b $(length(b))")
-    # println("size of c $(length(c))")
-    # println("size of h $(length(h))")
+    return program
+end
+
+function build_program(program::SymmetryReducedConeQP, allocated=false)
+    build_program(program.cone_qp, allocated)
     return program
 end
 

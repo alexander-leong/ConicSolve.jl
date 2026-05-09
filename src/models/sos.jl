@@ -5,7 +5,10 @@ This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.
 file in the root directory
 =#
 
+using DataStructures
+using DynamicPolynomials
 using LinearAlgebra
+using MultivariateBases
 
 """
     SOS
@@ -92,6 +95,28 @@ function get_A_matrix(sos::SOS)
     return A
 end
 
+"""
+    get_inds_2d(sos, n)
+
+Gets a list of lower triangular indices of the coefficient terms corresponding to the matrix ``Q`` in
+``[x]_d^TQ[x]_d`` for a given order ``n``.
+Example:
+For a third-order SOS polynomial, ``[x]_3 = [1, x, x^2, x^3]`` and the coefficient matrix ``Q`` is
+```math
+Q = \\begin{bmatrix}
+Q_{11} & Q_{12} & Q_{13} & Q_{14} \\\\
+Q_{21} & Q_{22} & Q_{23} & Q_{24} \\\\
+Q_{31} & Q_{32} & Q_{33} & Q_{34} \\\\
+Q_{41} & Q_{42} & Q_{43} & Q_{44}
+\\end{bmatrix} \\\\
+```
+If ``n=3`` we have
+```julia
+julia> get_inds_2d(SOS(3), 3)
+CartesianIndex{2}[CartesianIndex(2, 2), CartesianIndex(3, 1)]
+```
+since ``Q_{22}`` and ``Q_{31}`` correspond to third order terms of ``[x]_d^TQ[x]_d``.
+"""
 function get_inds_2d(sos::SOS, n)
     m = Int(floor(n / 2)) + 1
     n = n - m + 1
@@ -112,6 +137,16 @@ function get_inds_2d(sos::SOS, n)
     return inds
 end
 
+export get_inds_2d
+
+"""
+    get_inds(sos, n, dim=1)
+
+Returns flattened indices of get_inds_2d, for indexing a lower triangular matrix with a vector. \\
+If dim == 1, return the vectorized indices. \\
+If dim > 1, each entry in the lower triangular matrix is being indexed on a separate row, useful for constructing a matrix of constraints where each entry of the coefficient matrix, ``Q`` is set separately. \\
+It is the user/solver responsibility to eliminate rows of zeros!
+"""
 function get_inds(sos::SOS, n, dim=1)
     inds = get_inds_2d(sos, n)
     inds = lower_triangular_from_2d_idx(sos.n, inds)
@@ -176,6 +211,12 @@ function set_diagonal_Q_constraint(sos::SOS)
     end
 end
 
+function evaluate_monomials(p, v)
+    ps = collect(monomials(p))
+    vs = map(kv -> kv[2](v), reduce(vcat, enumerate(ps)))
+    return vs
+end
+
 """
     add_polynomial_equality_constraint(sos, b, p)
 
@@ -191,6 +232,65 @@ function add_polynomial_equality_constraint(sos::SOS, b, p)
     sos.b = vcat(sos.b, b)
 end
 
+function add_polynomial_equality_constraint(sos::SOS, b, p, v)
+    p = evaluate_monomials(p, v)
+    add_polynomial_equality_constraint(sos, b, p)
+end
+
+"""
+    get_vec_inds_map(items)
+
+Given a list of monomials, items, return a dictionary from monomial to list of indices to the vectorized coefficient matrix, Q.
+"""
+function get_vec_inds_map(A)
+    T = Tuple{Tuple{Int64, Int64}, Int64}
+    d = DefaultDict{DynamicPolynomials.Monomial, Vector{T}}(Vector{T})
+    N = size(A, 1)
+    i = 1
+    for n in 1:N
+        for m in n:N
+            push!(d[A[m, n]], ((m, n), i))
+            i += 1
+        end
+    end
+    return d
+end
+
+"""
+    get_polynomial_equality_constraint_from_coefficients(p, rhs)
+
+Returns the affine constraints as a matrix required for determining if a polynomial, p is SOS.
+"""
+function get_polynomial_equality_constraint_from_coefficients(p, rhs=0)
+    p = p - rhs
+    ps = collect(monomials(p))
+    coeffs = DynamicPolynomials.coefficients(p)
+    d = maxdegree(p)
+    pbasis = collect(maxdegree_basis(MonomialBasis, variables(p), Int(d/2)))
+    pmap2d = pbasis * pbasis'
+    char_map = get_vec_inds_map(pmap2d)
+    m = length(coeffs)
+    n = Int(size(pmap2d, 1) * (size(pmap2d, 1) + 1) / 2)
+    A = zeros((m, n))
+    # assemble affine constraints by matching coefficients (page 62 of Blekherman, Parrilo, Thomas)
+    for (i, m) in enumerate(ps)
+        v = char_map[m]
+        for j in v
+            k, l = j[begin]
+            if k == l # coefficient on the diagonal
+                A[i, j[end]] = 1
+            else # coefficient off diagonal
+                A[i, j[end]] = 2
+            end
+        end
+    end
+    b = coeffs
+    println(size(A))
+    return A, b, size(pmap2d, 1), ps
+end
+
+export get_polynomial_equality_constraint_from_coefficients
+
 """
     add_polynomial_inequality_constraint(sos, h, p)
 
@@ -204,6 +304,11 @@ function add_polynomial_inequality_constraint(sos::SOS, h, p)
     end
     sos.G = vcat(sos.G, G)
     sos.h = vcat(sos.h, h)
+end
+
+function add_polynomial_inequality_constraint(sos::SOS, b, p, v)
+    p = evaluate_monomials(p, v)
+    add_polynomial_inequality_constraint(sos, b, p)
 end
 
 """

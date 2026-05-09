@@ -46,7 +46,10 @@ end
 
 function reduce_affine_constraints(in_program::ConeQP, out_program::ConeQP, U::Matrix{Float64}, cone::Cone, n)
     affine_constraints = find_affine_constraints_by_cone(in_program, cone)
+    dims_before = get_size(cone)
     reduced_cone = add_variable(out_program, cone, n)
+    dims_after = get_size(cone)
+    @info "Dimension of cone objectid=$(objectid(cone)) reduced from $(dims_before) to $(dims_after)"
     for constraint in affine_constraints
         reduced_a = reduce_constraint(U, cone, constraint)
         add_affine_constraint(out_program, reduced_cone, reduced_a, constraint.rhs)
@@ -270,8 +273,35 @@ function run_fr_solver(solver::ConicSolve.Solver,
         push!(x, x_i)
         push!(reduced_solvers, reduced_solver)
     end
-    println("Face reduction completed")
+    @info "Face reduction completed"
     return x, reduced_solvers
+end
+
+function get_solution_from_iterate(program::SymmetryReducedConeQP, x_vec, it)
+    cone_qp = program.cone_qp
+    x_vec_solution = []
+    # TODO: improve handling of "nothing" for finding best solution
+    for (i, x) in enumerate(x_vec)
+        if isnothing(x)
+            @info "WARNING: no result from subprogram, skipping"
+            continue
+        end
+        push!(x_vec_solution, x[it])
+        push!(program._active_summands, i)
+    end
+    cone_qp.KKT_x = vcat(x_vec_solution...)
+    cone_qp.inds_c = 1:length(cone_qp.KKT_x)
+    return x_vec_solution
+end
+
+function run_fr_solver(program::SymmetryReducedConeQP,
+                       solver::ConicSolve.Solver,
+                       store_iterates=false,
+                       tol=2e-2,
+                       truncation_tol=1e-3)
+    x_vec, reduced_solvers = run_fr_solver(solver, store_iterates, tol, truncation_tol)
+    x_vec = get_solution_from_iterate(program, x_vec, 1)
+    return x_vec, reduced_solvers
 end
 
 export run_fr_solver
