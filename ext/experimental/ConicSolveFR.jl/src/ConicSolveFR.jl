@@ -46,9 +46,10 @@ end
 
 function reduce_affine_constraints(in_program::ConeQP, out_program::ConeQP, U::Matrix{Float64}, cone::Cone, n)
     affine_constraints = find_affine_constraints_by_cone(in_program, cone)
-    println(get_size(cone))
+    dims_before = get_size(cone)
     reduced_cone = add_variable(out_program, cone, n)
-    println(get_size(cone))
+    dims_after = get_size(cone)
+    @info "Dimension of cone objectid=$(objectid(cone)) reduced from $(dims_before) to $(dims_after)"
     for constraint in affine_constraints
         reduced_a = reduce_constraint(U, cone, constraint)
         add_affine_constraint(out_program, reduced_cone, reduced_a, constraint.rhs)

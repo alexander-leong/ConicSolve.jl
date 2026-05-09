@@ -268,7 +268,7 @@ function get_solution(program::SymmetryReducedConeQP)
     cones_inds = get_summands_inds(summands, program._active_summands)
     for (i, idx) in enumerate(program._active_summands)
         inds = cones_inds[i]:cones_inds[i+1]
-        summands[idx]' * mat(xs[inds]) * summands[idx]
+        result += summands[idx]' * mat(xs[inds]) * summands[idx]
     end
     return result
 end
