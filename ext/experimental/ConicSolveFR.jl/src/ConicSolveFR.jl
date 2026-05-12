@@ -72,7 +72,17 @@ function reduce_objective(U::Matrix{Float64}, c::Vector{Float64})
     return reduced_c
 end
 
-function project_to_min_face(x::Vector{Float64}, in_program::ConeQP, out_program::ConeQP, cone::Cone, tol=1e-3)
+function project_to_min_face(x::Vector{Float64}, in_program::ConeQP, out_program::ConeQP, cone::NonNegativeOrthant, tol=1e-3)
+    println("NOT HANDLED")
+    @assert false
+end
+
+function project_to_min_face(x::Vector{Float64}, in_program::ConeQP, out_program::ConeQP, cone::SecondOrderCone, tol=1e-3)
+    println("NOT HANDLED")
+    @assert false
+end
+
+function project_to_min_face(x::Vector{Float64}, in_program::ConeQP, out_program::ConeQP, cone::PSDCone, tol=1e-3)
     X = mat(x)
     F = svd(X)
     inds = findall(F.S .>= tol)
@@ -181,6 +191,7 @@ function reduce_cone_program(orig_solver::ConicSolve.Solver, cone::Cone, store_i
     Us, i, reduced_cone, reduced_obj, reduced_program, reduced_status = reduce_cone(solver, cone, out_program.c, truncation_tol)
     if reduced_status == ALREADY_FEASIBLE
         @info "Subproblem already feasible"
+        return nothing, reduced_status, nothing
     end
     if reduced_status == WEAK_CONSTRAINT
         return nothing, reduced_status, nothing
@@ -266,9 +277,9 @@ function run_fr_solver(solver::ConicSolve.Solver,
         cone = vars.cones[i]
         @info "Performing face reduction on cone $(i) of $(length(vars.cones))"
         x_i, reduced_status, reduced_solver = reduce_cone_program(solver, cone, store_iterates, tol, truncation_tol)
-        if !(reduced_status in [REDUCED_PROBLEM_OPTIMAL, WEAK_CONSTRAINT])
-            @info "Face reduction unsuccessful $(reduced_status)"
-            return
+        if !(reduced_status in [ALREADY_FEASIBLE, REDUCED_PROBLEM_OPTIMAL, WEAK_CONSTRAINT])
+            @info "Face reduction unsuccessful, $(reduced_status)"
+            return [], []
         end
         push!(x, x_i)
         push!(reduced_solvers, reduced_solver)

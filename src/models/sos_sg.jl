@@ -246,12 +246,10 @@ end
 
 function get_summands_inds(summands, inds::Vector{Int})
     summands_inds = [0]
-    for (i, idx) in enumerate(inds)
+    for idx in inds
         n = get_size(PSDCone(size(summands[idx], 1)))
         push!(summands_inds, n)
-        summands_inds[i] += 1
     end
-    summands_inds[1] = 1
     return summands_inds
 end
 
@@ -267,7 +265,7 @@ function get_solution(program::SymmetryReducedConeQP)
     result = zeros((n, n))
     cones_inds = get_summands_inds(summands, program._active_summands)
     for (i, idx) in enumerate(program._active_summands)
-        inds = cones_inds[i]:cones_inds[i+1]
+        inds = cones_inds[i]+1:cones_inds[i+1]
         result += summands[idx]' * mat(xs[inds]) * summands[idx]
     end
     return result
