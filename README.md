@@ -1,5 +1,6 @@
 # ConicSolve.jl
 
+[![codecov](https://codecov.io/github/alexander-leong/ConicSolve.jl/graph/badge.svg?token=4K83LA6UB8)](https://codecov.io/github/alexander-leong/ConicSolve.jl)
 [![Aqua QA](https://juliatesting.github.io/Aqua.jl/dev/assets/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
 ConicSolve.jl is an Interior Point based constrained optimization solver based on the paper [Vandenberghe, 2010, The CVXOPT linear and quadratic cone program solvers](https://www.seas.ucla.edu/~vandenbe/publications/coneprog.pdf). It can be used to solve several problem classes including LP (Linear Program), QP (Quadratic Program) and SDP (Semidefinite Program).

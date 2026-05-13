@@ -4,22 +4,7 @@
 
 Max flow min cut problems have multidisciplinary applications and commonly discussed due to pedagogical purposes. The problem is to maximize the flow (or throughput) of some quantity such as network data from a given source node to a destination node subject to capacity constraints between the nodes in the graph. This problem is an LP problem which has a natural conic formulation.
 
-## How to run the example
-
-1. Ensure that you have ConicSolve installed. This can be installed as follows:
-```julia
-julia> ]
-pkg> activate .
-pkg> add ConicSolve
-julia> exit()
-```
-
-2. Run the example from the command line
-```bash
-julia example.jl
-```
-
-### Explanation
+### Problem
 Assume we have the network graph below:
 ![Network Flow](../assets/graph_image.png)
 
@@ -96,6 +81,19 @@ This is a simple toy problem setup. No data has been imported in this example.
 
 (iv) We can access the solution by accessing the primal solution from the solver `x = get_solution(solver)`.
 
-#### Get the solution
+## How to run the example
+
+1. Ensure that you have ConicSolve installed. This can be installed as follows:
+```julia
+julia> ]
+pkg> activate .
+pkg> add ConicSolve
+julia> exit()
+```
+
+2. Run the example from the command line
+```bash
+julia example.jl
+```
 
 #### Further Comments

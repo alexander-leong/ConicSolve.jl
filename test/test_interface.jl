@@ -54,7 +54,7 @@ end
     A2::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
         0. 1. 1. 1. 0. 1.;
         1. 0. 0. 1. 0. 1.]
-    b::Vector{Float64} = [1., 2., 4., 3., 1., 2.]
+    b::Vector{Float64} = [1., 2., 4.]
 
     define_program(program,
                 (A1 * x1) + (A2 * x2) == b)
@@ -137,12 +137,12 @@ end
 
     x = add_variable(program, PSDCone(3), 6)
 
-    A::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
+    G::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
         0. 1. 0. 1. 0. 1.;
         0. 0. 1. 1. 0. 1.]
 
     define_program(program,
-                A * x in NonNegativeOrthant(6))
+                G * x ∈ NonNegativeOrthant(6))
     program = build_program(program)
 end
 
@@ -151,12 +151,12 @@ end
 
     x = add_variable(program, PSDCone(3), 6)
 
-    A::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
+    G::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
         0. 1. 0. 1. 0. 1.;
         0. 0. 1. 1. 0. 1.]
 
     define_program(program,
-                A * x in SecondOrderCone(6))
+                G * x ∈ SecondOrderCone(6))
     program = build_program(program)
 end
 
@@ -165,12 +165,12 @@ end
 
     x = add_variable(program, NonNegativeOrthant(6), 6)
 
-    A::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
+    G::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
         0. 1. 0. 1. 0. 1.;
         0. 0. 1. 1. 0. 1.]
 
     define_program(program,
-                A * x in PSDCone(6))
+                G * x ∈ PSDCone(6))
     program = build_program(program)
 end
 
@@ -207,51 +207,6 @@ end
 
     define_program(program,
                 lmi([A1, A2], x) ∈ b)
-    program = build_program(program)
-end
-
-@testset "expression in nonnegative orthant" begin
-    program = ConeQP()
-
-    x = add_variable(program, PSDCone(3), 6)
-
-    A::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
-        0. 1. 0. 1. 0. 1.;
-        0. 0. 1. 1. 0. 1.]
-    b::Vector{Float64} = [1., 2., 3.]
-
-    define_program(program,
-                A * x ∈ NonNegativeOrthant(6))
-    program = build_program(program)
-end
-
-@testset "expression in second order cone" begin
-    program = ConeQP()
-
-    x = add_variable(program, PSDCone(3), 6)
-
-    A::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
-        0. 1. 0. 1. 0. 1.;
-        0. 0. 1. 1. 0. 1.]
-    b::Vector{Float64} = [1., 2., 3.]
-
-    define_program(program,
-                A * x ∈ SecondOrderCone(6))
-    program = build_program(program)
-end
-
-@testset "expression in positive semidefinite cone" begin
-    program = ConeQP()
-
-    x = add_variable(program, NonNegativeOrthant(6), 6)
-
-    A::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
-        0. 1. 0. 1. 0. 1.;
-        0. 0. 1. 1. 0. 1.]
-    b::Vector{Float64} = [1., 2., 3.]
-
-    define_program(program,
-                A * x ∈ PSDCone(6))
     program = build_program(program)
 end
 
