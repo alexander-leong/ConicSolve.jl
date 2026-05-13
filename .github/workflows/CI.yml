@@ -3,6 +3,11 @@ on: [push, pull_request]
 jobs:
   documentation:
     uses: ./.github/workflows/documentation.yml
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: read
+      statuses: write
   test:
     name: Test
     runs-on: ubuntu-latest
