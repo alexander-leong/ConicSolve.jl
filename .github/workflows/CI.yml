@@ -2,7 +2,7 @@ name: CI
 on: [push, pull_request]
 jobs:
   documentation:
-    uses: ./.github/workflows/documentation.yml
+    uses: ./documentation.yml
   test:
     name: Test
     runs-on: ubuntu-latest
