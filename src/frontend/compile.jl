@@ -16,6 +16,16 @@ function parse_arg(program::ConeQP, arg::ConicExpression{<:Cone})
     return program
 end
 
+function parse_arg(program::ConeQP, arg::ConicInequalityExpression{NonNegativeOrthant})
+    expression = arg.expression
+    cone = expression.cone
+    # express inequality constraint as equality constraint using slack variables
+    add_slack_variable(program, cone, cone.p)
+    ir = program.program_ir
+    push!(ir._all_affine_constraints, arg.expression)
+    return program
+end
+
 function parse_arg(program::ConeQP, arg::PSDExpression)
     add_variable(program, arg.expression.cone, arg.expression.cone.p)
     parse_arg(program, arg.expression)
@@ -44,7 +54,7 @@ function parse_arg(program::ConeQP, arg::SymmetricGroup)
 end
 
 function parse_obj_arg(program::ConeQP, arg::ConicExpression{<:Cone})
-    set_objective(program, arg.lhs, arg.cone)
+    set_objective(program, arg.cone, arg.lhs)
     return program
 end
 
@@ -71,9 +81,29 @@ end
 
 function define_program(program::ConeQP, obj::ObjectiveFunction, args...)
     out_program = program
+    implicit_equality_constraints = []
+    cones = []
     for arg in args
+        if typeof(arg) <: ConicInequalityExpression
+            if !(arg.expression.cone in cones)
+                push!(cones, arg.expression.cone)
+            end
+            # process these at the end so added slack variables can be separated out later
+            push!(implicit_equality_constraints, arg)
+        else
+            if typeof(arg) <: ConicExpression
+                if !(arg.cone in cones)
+                    push!(cones, arg.cone)
+                end
+            end
+            out_program = parse_arg(program, arg)
+        end
+    end
+    ir = program.program_ir
+    for arg in implicit_equality_constraints
         out_program = parse_arg(program, arg)
     end
+    ir.num_slack_vars = get_size(program, ir.ids_implicit_cones)
     for obj_term in obj.args
         out_program = parse_obj_arg(out_program, obj_term)
     end

@@ -37,6 +37,14 @@ mutable struct PrimalObjective
     cone::Cone
     P::AbstractArray{Float64}
     c::AbstractArray{Float64}
+
+    function PrimalObjective(cone, P, c)
+        obj = new()
+        obj.cone = cone
+        obj.P = P
+        obj.c = c
+        return obj
+    end
 end
 
 const AffineConstraints = Vector{ConicExpression{<:Cone}}
@@ -51,12 +59,17 @@ mutable struct ConeQP_IR
     _all_inequality_constraints::AllConstraints
 
     ids_cones::Vector{UInt64}
+    ids_implicit_cones::Vector{UInt64}
+    num_slack_vars::UInt64
     num_vars::UInt64
     function ConeQP_IR()
         ir = new()
         ir.obj = []
         ir._all_affine_constraints = AllConstraints()
         ir._all_inequality_constraints = AllConstraints()
+        ir.ids_implicit_cones = []
+        ir.num_slack_vars = 0
+        ir.num_vars = 0
         return ir
     end
 end
@@ -108,6 +121,7 @@ mutable struct ConeQP
     inds_c::UnitRange{Int64}
     inds_b::UnitRange{Int64}
     inds_h::UnitRange{Int64}
+    inds_solution::UnitRange{Int64}
 
     is_feasibility_problem::Bool
     kktsystem::KKTSystem
@@ -308,6 +322,27 @@ end
 export remove_affine_constraints_by_indices
 export remove_inequality_constraints_by_indices
 
+function find_cone_from_id(program::ConeQP, id::UInt64)
+    idx = findfirst(cone -> id == objectid(cone), program.vars.cones)
+    return program.vars.cones[idx]
+end
+
+function get_size(program::ConeQP)
+    ir = program.program_ir
+    if isempty(ir.obj)
+        return get_size(program.vars)
+    end
+    n = sum([length(obj.c) for obj in ir.obj])
+    return n
+end
+
+function get_size(program::ConeQP, ids_cones::Vector{UInt64})
+    if length(ids_cones) == 0
+        return 0
+    end
+    return sum([get_size(find_cone_from_id(program, id)) for id in ids_cones])
+end
+
 function get_indices_of_constraint(program::ConeQP, cone::Cone)
     vars = program.vars
     ir = program.program_ir
@@ -413,7 +448,6 @@ function get_inequality_constraint_matrix(program::ConeQP, allocated=false)
     aux_vars = program.aux_vars
     append!(vars.cones, aux_vars.cones)
     set_cones_inds(program)
-    # println("Get inequality matrix")
     G = get_constraint_matrix(program, ir._all_inequality_constraints, [], n)
     h = vcat([constraint.rhs for constraint in ir._all_inequality_constraints]...)
     return G, h
@@ -422,7 +456,7 @@ end
 function get_primal_objective(program::ConeQP)
     vars = program.vars
     ir = program.program_ir
-    n = get_size(vars)
+    n = get_size(program)
     P = zeros((n, n))
     c = zeros(n)
     for obj in ir.obj
@@ -481,6 +515,15 @@ function add_variable(program::ConeQP, cone::Cone, p::Int64)
 end
 
 export add_variable
+
+function add_slack_variable(program::ConeQP, cone::Cone, p::Int64)
+    add_variable(program, cone, p)
+    ir = program.program_ir
+    if objectid(cone) in ir.ids_implicit_cones
+        return
+    end
+    push!(ir.ids_implicit_cones, objectid(cone))
+end
 
 """
     add_to_affine_constraint(constraint, cone, lhs)

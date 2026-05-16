@@ -280,12 +280,11 @@ function get_polynomial_equality_constraint_from_coefficients(p, rhs=0)
             if k == l # coefficient on the diagonal
                 A[i, j[end]] = 1
             else # coefficient off diagonal
-                A[i, j[end]] = 2
+                A[i, j[end]] = 2 # two cross-terms e.g. ab + ba
             end
         end
     end
     b = coeffs
-    println(size(A))
     return A, b, size(pmap2d, 1), ps
 end
 

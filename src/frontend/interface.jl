@@ -60,6 +60,10 @@ mutable struct ConicExpression{T<:Cone}
     end
 end
 
+mutable struct ConicInequalityExpression{T<:Cone}
+    expression::ConicExpression{T}
+end
+
 mutable struct PSDExpression
     expression::ConicExpression
 
@@ -238,6 +242,16 @@ end
 
 function Base.:(==)(expression::ConicExpression{T}, rhs::Union{AbstractArray{Float64}, Float64}) where T<:Cone
     expression.rhs = rhs
+    if typeof(rhs) <: Vector{Float64}
+        return expression
+    end
+    if length(rhs) == 1
+        if size(expression.lhs, 1) > 1
+            expression.rhs = rhs * ones(size(expression.lhs, 1))
+        else
+            expression.rhs = [rhs]
+        end
+    end
     return expression
 end
 
@@ -253,10 +267,22 @@ function Base.:(==)(cone::T, rhs::Vector{Float64}) where T<:Cone
     return constraint
 end
 
+function Base.:(<=)(expression::ConicExpression{T}, rhs::Union{AbstractArray{Float64}, Float64}) where T<:Cone
+    expression.rhs = rhs
+    expression = ConicInequalityExpression(expression)
+    return expression
+end
+
+function Base.:(>=)(expression::ConicExpression{T}, rhs::Union{AbstractArray{Float64}, Float64}) where T<:Cone
+    expression.rhs = rhs
+    expression = ConicInequalityExpression(expression)
+    return expression
+end
+
 function Base.:(<=)(p::DynamicPolynomials.Polynomial, rhs::Float64)
-    A, b, n, _ = get_polynomial_equality_constraint_from_coefficients(p, -rhs)
+    A, b, n, _ = get_polynomial_equality_constraint_from_coefficients(-p, -rhs)
     cone = PSDCone(n)
-    constraint = PSDExpression(A, -b)
+    constraint = PSDExpression(A, b)
     constraint.expression.cone = cone
     return constraint
 end

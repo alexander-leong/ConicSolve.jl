@@ -32,8 +32,6 @@ function get_graph()
     return G, min_G
 end
 
-export get_graph
-
 function get_a(i, n)
     A_vec = zeros((n, n))
     A_vec[i, :] .= -1
@@ -41,23 +39,6 @@ function get_a(i, n)
     A_vec[i, i] = 0
     a = vec(A_vec)
     return a
-end
-
-function get_flow_conservation_constraints(min_G)
-    n = size(min_G)[2]
-    A = vcat([get_a(i, n)' for i=2:n-1]...)
-    b = zeros(size(A)[1])
-    return A, b
-end
-
-function get_capacity_constraints(G, min_G)
-    G = Matrix{Float64}(I, (length(G), length(G)))
-    G = [G'; -G']
-    
-    h = vec(G)
-    h_min = -vec(min_G)
-    h = [h; h_min]
-    return G, h
 end
 
 function get_c(min_G)
@@ -68,31 +49,24 @@ function get_c(min_G)
     return c
 end
 
-function get_problem_parameters(G, min_G)
-    G, h = get_capacity_constraints(G, min_G)
-    A, b = get_flow_conservation_constraints(min_G)
-
-    # Set objective
-    P = zeros((size(A)[2], size(A)[2]))
-    c = get_c(min_G)
-    return A, G, P, b, c, h
-end
-
-function get_qp(G, min_G)
-    A, G, P, b, c, h = get_problem_parameters(G, min_G)
-    cones::Vector{Cone} = []
-    n = size(G)[1]
-    push!(cones, NonNegativeOrthant(n))
-    cone_qp = ConeQP(A, G, P, b, c, h, cones)
-    return cone_qp
-end
-
 function run_example()
-    G, min_G = get_graph()
-    cone_qp = get_qp(G, min_G)
-    solver = Solver(cone_qp)
-    solver.max_iterations = 10
-    run_solver(solver)
+    G_vals, min_G = get_graph()
+    G = Matrix{Float64}(I, (length(G_vals), length(G_vals)))
+    c = get_c(min_G)
+
+    program = ConeQP()
+    x = add_variable(program, NonNegativeOrthant(), size(G, 2))
+
+    n = size(min_G)[2]
+    define_program(program,
+                minimize(c * x),
+                vcat([get_a(i, n)' for i=2:n-1]...) * x == 0.,
+                [G'; -G'] * x <= [vec(G_vals); -vec(min_G)])
+    
+    program = build_program(program)
+    # solver = Solver(program)
+    # solver.max_iterations = 10
+    # run_solver(solver)
 end
 
 run_example()
