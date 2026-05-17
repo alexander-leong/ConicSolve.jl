@@ -514,6 +514,22 @@ function add_variable(program::ConeQP, cone::Cone, p::Int64)
     return cone
 end
 
+struct NuclearNorm
+    cone::PSDCone
+
+    function NuclearNorm()
+        obj = new()
+        obj.cone = PSDCone()
+        return obj
+    end
+end
+
+export NuclearNorm
+
+function add_variable(program::ConeQP, ::Type{NuclearNorm}, dims)
+    return NuclearNorm()
+end
+
 export add_variable
 
 function add_slack_variable(program::ConeQP, cone::Cone, p::Int64)

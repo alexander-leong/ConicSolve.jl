@@ -40,11 +40,9 @@ function parse_arg(program::ConeQP, arg::IntersectingConstraint{<:Cone, <:Cone})
     return program
 end
 
-function remap_constraint(program::ConeQP, arg::ConicExpression{PSDCone})
-end
-
-function parse_arg(program::ConeQP, arg::NuclearNormConstraint)
-    remap_constraint(program, arg.constraint)
+function parse_arg(program::ConeQP, arg::NuclearNormExpression)
+    ir = program.program_ir
+    push!(ir._all_affine_constraints, arg.constraint)
     return program
 end
 
@@ -79,27 +77,30 @@ function parse_obj_arg(program::ConeQP, arg::Tuple{Vector{Float64}, Intersecting
     return program
 end
 
+function dispatch(program::ConeQP, arg::ConicInequalityExpression, cones, equalities)
+    if !(arg.expression.cone in cones)
+        push!(cones, arg.expression.cone)
+    end
+    # process equalities at the end so added slack variables can be separated out later
+    push!(equalities, arg)
+end
+
+function dispatch(program::ConeQP, arg::ConicExpression, cones, equalities)
+    if !(arg.cone in cones)
+        push!(cones, arg.cone)
+    end
+    parse_arg(program, arg)
+end
+
 function define_program(program::ConeQP, obj::ObjectiveFunction, args...)
-    out_program = program
-    implicit_equality_constraints = []
     cones = []
+    implicit_equality_constraints = []
+    program_args = cones, implicit_equality_constraints
     for arg in args
-        if typeof(arg) <: ConicInequalityExpression
-            if !(arg.expression.cone in cones)
-                push!(cones, arg.expression.cone)
-            end
-            # process these at the end so added slack variables can be separated out later
-            push!(implicit_equality_constraints, arg)
-        else
-            if typeof(arg) <: ConicExpression
-                if !(arg.cone in cones)
-                    push!(cones, arg.cone)
-                end
-            end
-            out_program = parse_arg(program, arg)
-        end
+        dispatch(program, arg, program_args...)
     end
     ir = program.program_ir
+    out_program = program
     for arg in implicit_equality_constraints
         out_program = parse_arg(program, arg)
     end

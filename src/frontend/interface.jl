@@ -87,11 +87,18 @@ mutable struct IntersectingConstraint{T<:Cone, U<:Cone}
     end
 end
 
-mutable struct NuclearNormConstraint
+mutable struct NuclearNormExpression
+    cone::PSDCone
     constraint::ConicExpression{PSDCone}
-    function NuclearNormConstraint(constraint::ConicExpression{PSDCone})
+    sdp::NuclearNormSDP
+    function NuclearNormExpression()
         obj = new()
-        obj.constraint = constraint
+        return obj
+    end
+    function NuclearNormExpression(x::Matrix{Float64}, cone::PSDCone)
+        obj = new()
+        obj.cone = cone
+        obj.sdp = NuclearNormSDP(x)
         return obj
     end
 end
@@ -150,6 +157,10 @@ function Base.:*(lhs::Float64, cone::T) where T <: Cone
     return ConicExpression(cone, lhs, Float64[])
 end
 
+function Base.:*(::Type{FixedValue}, ::Type{NuclearNorm})
+    return NuclearNormExpression(I)
+end
+
 function Base.:+(constraint1::ConicExpression{T}, constraint2::ConicExpression{U}) where {T, U <: Cone}
     push!(constraint1.link_constraints, constraint2)
     return constraint1
@@ -200,11 +211,11 @@ function lmi(lhs::Vector{Matrix{Float64}}, cone::PSDCone)
     return ConicExpression(cone, G, Float64[])
 end
 
-function nuclear_norm(cone::PSDCone)
-    expression = ConicExpression(cone, Float64[], Float64[])
-    expression._remap_constraint = true
-    return expression
-end
+# function nuclear_norm(cone::PSDCone)
+#     expression = ConicExpression(cone, Float64[], Float64[])
+#     expression._remap_constraint = true
+#     return expression
+# end
 
 function tr(cone::PSDCone)
 end
@@ -265,6 +276,15 @@ function Base.:(==)(cone::T, rhs::Vector{Float64}) where T<:Cone
     n = get_size(cone)
     constraint = ConicExpression(cone, Matrix{Float64}(I, n, n), rhs)
     return constraint
+end
+
+function Base.:(==)(expression::NuclearNormExpression, rhs::Tuple{Matrix{Float64}, Matrix{Bool}})
+    A, b = set_off_diag_constraint(expression.sdp, rhs...)
+    p = get_size(expression.sdp)
+    expression.cone = PSDCone(p)
+    constraint = ConicExpression{PSDCone}(expression.cone, A, b)
+    expression.constraint = constraint
+    return expression
 end
 
 function Base.:(<=)(expression::ConicExpression{T}, rhs::Union{AbstractArray{Float64}, Float64}) where T<:Cone

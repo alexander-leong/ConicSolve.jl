@@ -34,27 +34,36 @@ function preprocess_data()
 
     img = convert(Array{Float64, 2}, img)
     noise = convert(Array{Float64, 2}, noise)
-    return img, noise
-end
-
-function run_example()
-    @info "Getting data"
-    # img, noise = preprocess_data()
+    
     data = load("/home/alexander/Documents/alexander_leong/ConicSolve.jl/data.jld")
     x_l, x_u, y_l, y_u = 107, 154, 225, 272
     img = data["img"]
     noise = data["noise"]
     img = get_block_matrix(img, x_l, y_l, x_u, y_u)
     noise = get_block_matrix(noise, x_l, y_l, x_u, y_u)
-    @info "Constructing optimization problem"
-    cone_qp = denoise_image(img, noise)
-    solver = Solver(cone_qp)
-    solver.max_iterations = 5
-    status = run_solver(solver)
-    return solver, status
-    # x = get_solution(solver)
-    @info "Done"
+    return img, noise
 end
 
-solver, status = run_example()
-save("/home/alexander/Documents/alexander_leong/ConicSolve.jl/2d_reconstruction_2.jld", "kktsolution", solver.program.KKT_x, "s", solver.program.s)
+function run_example(data, mask)
+    program = ConeQP()
+    # A, b = set_off_diag_constraint(program, data, mask)
+    A = Type{FixedValue}
+    b = (data, mask)
+    x = add_variable(program, NuclearNorm(), size(data))
+    
+    define_program(program,
+                minimize(nuclear_norm(x)),
+                A * x == b,
+                x ∈ NonNegativeOrthant())
+    program = build_program(program)
+    
+    solver = Solver(program)
+    solver.max_iterations = 10
+    status = run_solver(solver)
+    x = get_solution(solver)
+    return solver, status
+end
+
+data, mask = preprocess_data()
+solver, status = run_example(data, mask)
+# save("/home/alexander/Documents/alexander_leong/ConicSolve.jl/2d_reconstruction_2.jld", "kktsolution", solver.program.KKT_x, "s", solver.program.s)
