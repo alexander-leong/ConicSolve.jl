@@ -5,6 +5,7 @@ This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.
 file in the root directory
 =#
 
+using DynamicPolynomials
 using LinearAlgebra
 using OperatorScaling
 
@@ -514,20 +515,19 @@ function add_variable(program::ConeQP, cone::Cone, p::Int64)
     return cone
 end
 
-struct NuclearNorm
-    cone::PSDCone
-
-    function NuclearNorm()
-        obj = new()
-        obj.cone = PSDCone()
-        return obj
-    end
+function add_variable(program::ConeQP, ::Type{NuclearNorm}, dims)
+    obj = NuclearNorm(sum(dims))
+    cone = obj.cone
+    add_variable(program, cone, cone.p)
+    return obj
 end
 
-export NuclearNorm
-
-function add_variable(program::ConeQP, ::Type{NuclearNorm}, dims)
-    return NuclearNorm()
+function add_variable(program::ConeQP, ::Type{SOS}, p, variables)
+    n = maxdegree(p)
+    sos = SOS(n, variables)
+    cone = add_variable(program, PSDCone(n), n)
+    sos.cones = [cone]
+    return sos
 end
 
 export add_variable
@@ -611,10 +611,15 @@ function add_inequality_constraint(program::ConeQP, cone::Cone, lhs::AbstractArr
     push!(ir._all_inequality_constraints, constraint)
 end
 
-function add_default_inequality_constraint(program::ConeQP, cone::Cone)
+function get_default_inequality_constraint(cone::Cone)
     n = get_size(cone)
     G = -Matrix{Float64}(I, n, n)
     h = zeros(n)
+    return G, h
+end
+
+function add_default_inequality_constraint(program::ConeQP, cone::Cone)
+    G, h = get_default_inequality_constraint(cone)
     add_inequality_constraint(program, cone, G, h)
 end
 

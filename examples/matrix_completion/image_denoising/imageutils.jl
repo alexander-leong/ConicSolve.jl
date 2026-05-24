@@ -7,6 +7,7 @@ file in the root directory
 
 using ColorTypes
 using ImageFiltering
+# using JLD
 using TestImages
 
 function load_image()
@@ -38,3 +39,21 @@ function detect_noise(img, threshold)
     noise = map(x -> x >= threshold, imgl)
     return noise
 end
+
+# function preprocess_data()
+#     img = load_image()
+#     noisy_img = add_noise(img, 0.2)
+#     threshold = 0.99
+#     noise = detect_noise(noisy_img, threshold)
+
+#     img = convert(Array{Float64, 2}, img)
+#     noise = convert(Array{Float64, 2}, noise)
+    
+#     data = load("/home/alexander/Documents/alexander_leong/ConicSolve.jl/data.jld")
+#     x_l, x_u, y_l, y_u = 107, 154, 225, 272
+#     img = data["img"]
+#     noise = data["noise"]
+#     img = get_block_matrix(img, x_l, y_l, x_u, y_u)
+#     noise = get_block_matrix(noise, x_l, y_l, x_u, y_u)
+#     return img, noise
+# end

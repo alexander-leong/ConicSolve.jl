@@ -53,14 +53,17 @@ mutable struct NuclearNormSDP
     * `X_1`: The block matrix X_1 of the SDP matrix X
     """
     function NuclearNormSDP(X_1)
+        return NuclearNormSDP(X_1, sum(size(X_1)))
+    end
+    function NuclearNormSDP(X_1, dims)
         sdp = new()
-        sdp.num_rows = size(X_1)[1] + size(X_1)[2]
-        sdp.num_cols = sdp.num_rows
+        sdp.num_rows = dims[1]
+        sdp.num_cols = dims[2]
         sdp.cones = []
         push!(sdp.cones, PSDCone(sdp.num_rows))
         sdp.idx = CartesianIndices((sdp.num_rows, sdp.num_cols))
         sdp.X_1 = X_1
-        sdp.X_1_idx = sdp.idx[1:size(X_1)[1], end - size(X_1)[2]:end][:]
+        sdp.X_1_idx = sdp.idx[1:dims[1], end - dims[2]+1:end][:]
         return sdp
     end
 end
@@ -197,6 +200,14 @@ end
 abstract type FixedValue end
 export FixedValue
 
+function get_trace(dims)
+    c_ones = map(x -> CartesianIndex(x[1], x[1]), 1:dims[1])
+    c_ones = lower_triangular_from_2d_idx(dims[1], c_ones)
+    c = zeros(Int((dims[1] * (dims[1] + 1)) / 2))
+    c[c_ones] .= 1
+    return c
+end
+
 """
     get_trace(sdp)
 
@@ -208,12 +219,8 @@ in the objective function.
 The vector c to pass as argument to ConeQP.
 """
 function get_trace(sdp::NuclearNormSDP)
-    dim = (sdp.num_rows, sdp.num_cols)
-    c_ones = map(x -> CartesianIndex(x[1], x[1]), 1:dim[1])
-    c_ones = lower_triangular_from_2d_idx(dim[1], c_ones)
-    c = zeros(Int((dim[1] * (dim[1] + 1)) / 2))
-    c[c_ones] .= 1
-    return c
+    dims = (sdp.num_rows, sdp.num_cols)
+    return get_trace(dims)
 end
 
 """

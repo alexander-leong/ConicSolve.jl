@@ -87,6 +87,22 @@ mutable struct IntersectingConstraint{T<:Cone, U<:Cone}
     end
 end
 
+mutable struct NuclearNorm
+    cone::PSDCone
+
+    function NuclearNorm()
+        obj = new()
+        return obj
+    end
+    function NuclearNorm(p)
+        obj = new()
+        obj.cone = PSDCone(p)
+        return obj
+    end
+end
+
+export NuclearNorm
+
 mutable struct NuclearNormExpression
     cone::PSDCone
     constraint::ConicExpression{PSDCone}
@@ -98,7 +114,8 @@ mutable struct NuclearNormExpression
     function NuclearNormExpression(x::Matrix{Float64}, cone::PSDCone)
         obj = new()
         obj.cone = cone
-        obj.sdp = NuclearNormSDP(x)
+        p = cone.p
+        obj.sdp = NuclearNormSDP(x, (p, p))
         return obj
     end
 end
@@ -157,8 +174,9 @@ function Base.:*(lhs::Float64, cone::T) where T <: Cone
     return ConicExpression(cone, lhs, Float64[])
 end
 
-function Base.:*(::Type{FixedValue}, ::Type{NuclearNorm})
-    return NuclearNormExpression(I)
+function Base.:*(::Type{FixedValue}, constraint::NuclearNorm)
+    p = constraint.cone.p
+    return NuclearNormExpression(Matrix{Float64}(I, p, p), constraint.cone)
 end
 
 function Base.:+(constraint1::ConicExpression{T}, constraint2::ConicExpression{U}) where {T, U <: Cone}
@@ -211,11 +229,11 @@ function lmi(lhs::Vector{Matrix{Float64}}, cone::PSDCone)
     return ConicExpression(cone, G, Float64[])
 end
 
-# function nuclear_norm(cone::PSDCone)
-#     expression = ConicExpression(cone, Float64[], Float64[])
-#     expression._remap_constraint = true
-#     return expression
-# end
+function nuclear_norm(x::NuclearNorm)
+    return x
+end
+
+export nuclear_norm
 
 function tr(cone::PSDCone)
 end
@@ -251,6 +269,13 @@ function Base.:in(f::DynamicPolynomials.Polynomial, T::SymmetricGroup)
     return SymmetricGroup(f, T.n)
 end
 
+function Base.:in(x::NuclearNorm, cone::NonNegativeOrthant)
+    p = get_size(x.cone)
+    cone = NonNegativeOrthant(p)
+    lhs, rhs = get_default_inequality_constraint(cone)
+    return ConicExpression(cone, lhs, rhs)
+end
+
 function Base.:(==)(expression::ConicExpression{T}, rhs::Union{AbstractArray{Float64}, Float64}) where T<:Cone
     expression.rhs = rhs
     if typeof(rhs) <: Vector{Float64}
@@ -278,17 +303,18 @@ function Base.:(==)(cone::T, rhs::Vector{Float64}) where T<:Cone
     return constraint
 end
 
-function Base.:(==)(expression::NuclearNormExpression, rhs::Tuple{Matrix{Float64}, Matrix{Bool}})
+function Base.:(==)(expression::NuclearNormExpression, rhs::Tuple{AbstractArray{Float64}, T}) where {T<:AbstractArray{Bool}}
     A, b = set_off_diag_constraint(expression.sdp, rhs...)
-    p = get_size(expression.sdp)
+    p = expression.sdp.num_rows
     expression.cone = PSDCone(p)
-    constraint = ConicExpression{PSDCone}(expression.cone, A, b)
+    constraint = ConicExpression(expression.cone, A, b)
     expression.constraint = constraint
     return expression
 end
 
 function Base.:(<=)(expression::ConicExpression{T}, rhs::Union{AbstractArray{Float64}, Float64}) where T<:Cone
-    expression.rhs = rhs
+    expression.lhs *= -1
+    expression.rhs = -rhs
     expression = ConicInequalityExpression(expression)
     return expression
 end
@@ -299,19 +325,26 @@ function Base.:(>=)(expression::ConicExpression{T}, rhs::Union{AbstractArray{Flo
     return expression
 end
 
-function Base.:(<=)(p::DynamicPolynomials.Polynomial, rhs::Float64)
-    A, b, n, _ = get_polynomial_equality_constraint_from_coefficients(-p, -rhs)
-    cone = PSDCone(n)
+function Base.:(==)(sos_p::SOSPolynomial, rhs::Float64)
+    A, b = add_polynomial_equality_constraint(sos_p.sos, rhs, sos_p.p)
     constraint = PSDExpression(A, b)
-    constraint.expression.cone = cone
+    constraint.expression.cone = sos_p.sos.cones[end]
     return constraint
 end
 
-function Base.:(>=)(p::DynamicPolynomials.Polynomial, rhs::Float64)
-    A, b, n, _ = get_polynomial_equality_constraint_from_coefficients(p, rhs)
-    cone = PSDCone(n)
+function Base.:(<=)(sos_p::SOSPolynomial, rhs::Float64)
+    sos_p.p *= -1
+    A, b, n, _ = get_polynomial_equality_constraint_from_coefficients(sos_p, -rhs)
     constraint = PSDExpression(A, b)
-    constraint.expression.cone = cone
+    constraint.expression.cone = sos_p.sos.cones[end]
+    return constraint
+end
+
+function Base.:(>=)(sos_p::SOSPolynomial, rhs::Float64)
+    p = sos_p.p
+    A, b, n, _ = get_polynomial_equality_constraint_from_coefficients(sos_p, rhs)
+    constraint = PSDExpression(A, b)
+    constraint.expression.cone = sos_p.sos.cones[end]
     return constraint
 end
 

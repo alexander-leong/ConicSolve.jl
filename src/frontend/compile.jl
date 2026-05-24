@@ -77,6 +77,12 @@ function parse_obj_arg(program::ConeQP, arg::Tuple{Vector{Float64}, Intersecting
     return program
 end
 
+function parse_obj_arg(program::ConeQP, arg::NuclearNorm)
+    c = get_trace((arg.cone.p, arg.cone.p))
+    set_objective(program, arg.cone, c)
+    return program
+end
+
 function dispatch(program::ConeQP, arg::ConicInequalityExpression, cones, equalities)
     if !(arg.expression.cone in cones)
         push!(cones, arg.expression.cone)
@@ -92,8 +98,19 @@ function dispatch(program::ConeQP, arg::ConicExpression, cones, equalities)
     parse_arg(program, arg)
 end
 
+function dispatch(program::ConeQP, arg::NuclearNormExpression, cones, equalities)
+    if !(arg.cone in cones)
+        push!(cones, arg.cone)
+    end
+    dispatch(program, arg.constraint, cones, equalities)
+end
+
+function dispatch(program::ConeQP, arg::PSDExpression, cones, equalities)
+    dispatch(program, arg.expression, cones, equalities)
+end
+
 function define_program(program::ConeQP, obj::ObjectiveFunction, args...)
-    cones = []
+    cones = program.vars.cones
     implicit_equality_constraints = []
     program_args = cones, implicit_equality_constraints
     for arg in args
