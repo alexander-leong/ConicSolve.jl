@@ -105,6 +105,14 @@ function dispatch(program::ConeQP, arg::NuclearNormExpression, cones, equalities
     dispatch(program, arg.constraint, cones, equalities)
 end
 
+function dispatch(program::ConeQP, arg::IntersectingConstraint{<:Cone, <:Cone}, cones, equalities)
+    parse_arg(program, arg)
+end
+
+function dispatch(program::ConeQP, arg::SymmetricGroup, cones, equalities)
+    parse_arg(program, arg)
+end
+
 function dispatch(program::ConeQP, arg::PSDExpression, cones, equalities)
     dispatch(program, arg.expression, cones, equalities)
 end

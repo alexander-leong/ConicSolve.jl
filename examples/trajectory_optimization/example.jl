@@ -5,40 +5,9 @@ This Julia package ConicSolve.jl is released under the MIT license; see LICENSE.
 file in the root directory
 =#
 
-# include("polyutils.jl")
-
 using ConicSolve
 using LinearAlgebra
 using DynamicPolynomials
-
-function get_traj_qp()
-    # use fourth order polynomial
-    p = DynamicPolynomials.Polynomial([1, 1, 1, 1, 1], :t)
-    sos = SOS(length(p))
-    dp = ∂(p)
-    ddp = ∂(dp)
-    dddp = ∂(ddp)
-
-    # set initial x-position at t = 0
-    add_polynomial_equality_constraint(sos, 0, p, 0)
-    # set final x-position at t = 1
-    add_polynomial_equality_constraint(sos, 5, p, 1)
-    # set initial x-velocity at t = 0 less than or equal to 5.5
-    add_polynomial_inequality_constraint(sos, 5.5, dp, 0)
-    # set final x-velocity at t = 1 less than or equal to 1.5
-    add_polynomial_inequality_constraint(sos, 1.5, dp, 1)
-    
-    num_vars = size(sos.A)[2]
-    # set objective as min. jerk
-    P = zeros((num_vars, num_vars))
-    inds = get_inds(sos, 4, 2)
-    P[inds] .= 1
-    c = zeros(num_vars)
-    set_objective(sos, P, c)
-
-    cone_qp = sos_to_qp(sos)
-    return cone_qp
-end
 
 function run_example()
     @polyvar t
@@ -73,7 +42,7 @@ function run_example()
     
     program = build_program(program)
     solver = Solver(program)
-    # solver.max_iterations = 20
+    solver.max_iterations = 20
     # status = run_solver(solver)
     # return status
     # x = get_solution(solver)
