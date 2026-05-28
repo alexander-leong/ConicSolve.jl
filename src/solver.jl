@@ -840,14 +840,12 @@ function update_solver_status(solver::Solver)
     if i > 0
         # Farkas' lemma
         r1 = check_infeasibility(solver)
-        println("bad")
         if r1 == true
             @info "Produced certificate of infeasibility"
             status.status_termination = INFEASIBLE
             return true, [], nothing
         end
     end
-    println("good!")
     result, r, μ = evaluate_optimality_conditions(solver)
 
     return result, r, μ

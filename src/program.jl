@@ -260,12 +260,12 @@ function check_program(cone_qp::ConeQP)
     h = cone_qp.h
     if A != undef && !isnothing(A)
         if size(A)[2] != size(G)[2]
-            throw(DimensionMismatch("Number of columns of A does not equal G"))
+            throw(DimensionMismatch("Number of columns of A, $(size(A, 2)) does not equal G, $(size(G, 2))"))
         end
     end
     if P != undef && !isnothing(P)
         if size(G)[2] != size(P)[2]
-            throw(DimensionMismatch("Number of columns of G does not equal P"))
+            throw(DimensionMismatch("Number of columns of G, $(size(G, 2)) does not equal P, $(size(P, 2))"))
         end
         if size(P)[1] != size(P)[2]
             throw(DimensionMismatch("P is not square"))
