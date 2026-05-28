@@ -211,7 +211,7 @@ Gets the solution to the symmetry reduced cone program in terms of the original 
 """
 function get_solution(program::SymmetryReducedConeQP)
     summands = program.summands
-    xs = get_solution(program.cone_qp)
+    xs = get_solution(program.program_int.cone_qp)
     n = size(summands[1], 2)
     result = zeros((n, n))
     cones_inds = get_summands_inds(summands, program._active_summands)

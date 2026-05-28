@@ -8,7 +8,6 @@ file in the root directory
 module ConicSolveFR
 
 using ConicSolve
-using JLD
 using LinearAlgebra
 
 mutable struct FacialReduction
@@ -133,7 +132,7 @@ function reduce_cone(program_int::ProgramInterface,
                      tol=1e-1,
                      truncation_tol=1e-3)
     # return facial reduced problem as per Algorithm 1.1 Permenter 2017
-    Us = []
+    Us = Matrix{Float64}[]
     U = nothing
     i = 1
     reduced_cone = typeof(cone)(cone.p)
@@ -256,7 +255,6 @@ function reduce_cone_program(program_int::ProgramInterface,
     @info "Subproblem reduced"
 
     # set objective of reduced problem
-    # set_objective(reduced_program_int.ir, reduced_cone, reduced_obj)
     reduced_program = build_program(reduced_program_int)
 
     # solve the reduced problem
@@ -265,7 +263,6 @@ function reduce_cone_program(program_int::ProgramInterface,
     # suppress_logging(cone_subproblem_solver)
 
     ConicSolve.run_solver(cone_subproblem_solver, false, false, false)
-    exit(0)
 
     x = get_solution(cone_subproblem_solver)
     status = get_solver_status(cone_subproblem_solver)
@@ -349,7 +346,7 @@ function run_fr_solver(program,
     end
     @info "Face reduction completed"
     
-    x_vec = get_solution_from_iterate(program, x_vec, 1)
+    x_vec = get_solution_from_iterate(program, x, 1)
     return x_vec, reduced_solvers
 end
 

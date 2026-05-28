@@ -219,10 +219,7 @@ end
 Get the solution to the optimization problem.
 """
 function get_solution(program::ConeQP)
-    # TODO: remove indexing logic, needs to be here due to ConicSolveFR
-    # slacks are excluded from the solution vector
-    ir = program.program_ir
-    program.inds_solution = 1:program.inds_c[end]-ir.num_slack_vars
+    program.inds_solution = 1:program.inds_c[end]
     x_inds = program.inds_solution
     return program.KKT_x[x_inds]
 end
