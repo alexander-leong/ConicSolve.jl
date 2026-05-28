@@ -69,3 +69,31 @@ function Base.:(==)(expression::NuclearNormExpression, rhs::Tuple{AbstractArray{
     expression.constraint = constraint
     return expression
 end
+
+function parse_arg(program_int::ProgramInterface, arg::NuclearNormExpression)
+    ir = program_int.ir
+    push!(ir._all_affine_constraints, arg.constraint)
+    return program_int
+end
+
+function parse_obj_arg(program_int::ProgramInterface, arg::NuclearNorm)
+    c = get_trace((arg.cone.p, arg.cone.p))
+    set_objective(program_int.ir, arg.cone, c)
+    return program_int
+end
+
+function dispatch(program_int::ProgramInterface, arg::NuclearNormExpression, cones, equalities)
+    if !(arg.cone in cones)
+        push!(cones, arg.cone)
+    end
+    return dispatch(program_int, arg.constraint, cones, equalities)
+end
+
+function add_variable(program::ConeQP, ::Type{NuclearNorm}, dims)
+    obj = NuclearNorm(sum(dims))
+    cone = obj.cone
+    add_variable(program, cone, cone.p)
+    return obj
+end
+
+export add_variable

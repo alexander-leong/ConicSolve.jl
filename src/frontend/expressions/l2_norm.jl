@@ -8,10 +8,12 @@ file in the root directory
 mutable struct L2Norm
     cone::SecondOrderCone
     constraint::ConicExpression{SecondOrderCone}
+    lhs::VecOrMat
 
-    function L2Norm(cone::Cone)
+    function L2Norm(cone::Cone, lhs::VecOrMat)
         obj = new()
         obj.cone = cone
+        obj.lhs = lhs
         p = get_size(cone)
         intersecting_cone = SecondOrderCone(p)
         constraint_lhs = Matrix{Float64}(I, p, p)
@@ -22,8 +24,14 @@ mutable struct L2Norm
     end
 end
 
-function l2(lhs::Vector{Float64}, cone::Cone)
-    return lhs, L2Norm(cone)
+function l2(lhs::VecOrMat{Float64}, cone::Cone)
+    return L2Norm(cone, lhs)
+end
+
+function Base.:+(lhs::L2Norm, rhs::L2Norm)
+end
+
+function Base.:-(lhs::L2Norm, rhs::L2Norm)
 end
 
 export l2

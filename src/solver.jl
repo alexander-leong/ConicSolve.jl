@@ -63,6 +63,7 @@ mutable struct Solver
     presolve_regularization_tol::Float32
     presolve_scaling_method
     program::ConeQP
+    program_int::ProgramInterface
     solve_time
     status::SolverStatus
     status_dual::ResultStatus
@@ -125,6 +126,38 @@ mutable struct Solver
         solver.tol_optimality = tol_optimality
         solver.η = η
         solver.γ = γ
+        return solver
+    end
+    
+    function Solver(program_int::ProgramInterface,
+                    kktsolve="qrchol",
+                    preconditioner="ruiz",
+                    limit_obj=-Inf,
+                    limit_soln=0,
+                    tol_gap_abs=1e-2,
+                    tol_gap_rel=1e-2,
+                    tol_optimality=1e-2,
+                    max_iterations=200,
+                    time_limit_sec=1e6,
+                    η=0.0,
+                    γ::Float64=1.0,
+                    cb_before_iteration=nothing,
+                    cb_after_iteration=nothing)
+        solver = Solver(program=program_int.cone_qp,
+                    kktsolve=kktsolve,
+                    preconditioner=preconditioner,
+                    limit_obj=limit_obj,
+                    limit_soln=limit_soln,
+                    tol_gap_abs=tol_gap_abs,
+                    tol_gap_rel=tol_gap_rel,
+                    tol_optimality=tol_optimality,
+                    max_iterations=max_iterations,
+                    time_limit_sec=time_limit_sec,
+                    η=η,
+                    γ:γ,
+                    cb_before_iteration=cb_before_iteration,
+                    cb_after_iteration=cb_after_iteration)
+        solver.program_int = program_int
         return solver
     end
 end
@@ -807,12 +840,14 @@ function update_solver_status(solver::Solver)
     if i > 0
         # Farkas' lemma
         r1 = check_infeasibility(solver)
+        println("bad")
         if r1 == true
             @info "Produced certificate of infeasibility"
             status.status_termination = INFEASIBLE
             return true, [], nothing
         end
     end
+    println("good!")
     result, r, μ = evaluate_optimality_conditions(solver)
 
     return result, r, μ

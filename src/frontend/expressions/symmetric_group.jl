@@ -25,6 +25,28 @@ mutable struct SymmetricGroup
     end
 end
 
+mutable struct SymmetricGroupAction <: ConicGroupAction
+    f::PolynomialFunction
+    g::SymmetricGroup
+    pg::PermGroup
+end
+
+export SymmetricGroupAction
+
 function Base.:in(f::DynamicPolynomials.Polynomial, T::SymmetricGroup)
     return SymmetricGroup(f, T.n)
+end
+
+function parse_arg(program_int::ProgramInterface, arg::SymmetricGroup)
+    return wedderburn_decompose!(program_int, arg)
+end
+
+function parse_obj_arg(program::SymmetryReducedConeQP{SymmetricGroupAction}, arg::DynamicPolynomials.Polynomial)
+    program_int = program.program_int
+    parse_obj_arg(program_int, arg)
+    return program
+end
+
+function dispatch(program_int::ProgramInterface, arg::SymmetricGroup, cones, equalities)
+    return parse_arg(program_int, arg)
 end

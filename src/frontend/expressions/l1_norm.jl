@@ -8,10 +8,12 @@ file in the root directory
 mutable struct L1Norm
     cone::NonNegativeOrthant
     constraints::Vector{ConicExpression{NonNegativeOrthant}}
+    lhs::VecOrMat
 
-    function L1Norm(cone::NonNegativeOrthant)
+    function L1Norm(cone::NonNegativeOrthant, lhs::VecOrMat)
         obj = new()
         obj.cone = cone
+        obj.lhs = lhs
         p = get_size(cone)
         rhs = zeros(get_size(cone))
 
@@ -29,9 +31,15 @@ mutable struct L1Norm
     end
 end
 
-function l1(lhs::Vector{Float64}, cone::Cone)
-    constraint = L1Norm(cone)
-    return lhs, constraint
+function l1(lhs::VecOrMat{Float64}, cone::Cone)
+    constraint = L1Norm(cone, lhs)
+    return constraint
+end
+
+function Base.:+(lhs::L1Norm, rhs::L1Norm)
+end
+
+function Base.:-(lhs::L1Norm, rhs::L1Norm)
 end
 
 export l1

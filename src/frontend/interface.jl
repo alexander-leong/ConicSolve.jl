@@ -20,11 +20,38 @@ using LinearAlgebra
 using PermutationGroups
 
 include("expressions/conic_expression.jl")
+
+abstract type ConicGroupAction end
+
+mutable struct SymmetryReducedConeQP{T}
+    program_int::ProgramInterface
+    group::T
+    summands
+    wedderburn
+    _active_summands::Vector{Int}
+    function SymmetryReducedConeQP{T}() where T <: ConicGroupAction
+        obj = new{T}()
+        return obj
+    end
+    function SymmetryReducedConeQP{T}(program_int, group, summands, wedderburn) where T <: ConicGroupAction
+        obj = new{T}()
+        obj.program_int = program_int
+        obj.group = group
+        obj.summands = summands
+        obj.wedderburn = wedderburn
+        obj._active_summands = Vector{Int}([])
+        return obj
+    end
+end
+
+export SymmetryReducedConeQP
+
 include("expressions/sos_polynomial.jl")
 include("expressions/nuclear_norm.jl")
 include("expressions/l1_norm.jl")
 include("expressions/l2_norm.jl")
 include("expressions/symmetric_group.jl")
+include("operators.jl")
 
 function Base.:*(lhs::VecOrMat{Float64}, cone::T) where T <: Cone
     return ConicExpression(cone, lhs, Float64[])
@@ -84,3 +111,19 @@ function lmi(lhs::Vector{Matrix{Float64}}, cone::PSDCone)
 end
 
 export lmi
+
+function remove_affine_constraints_by_indices(program::ConeQP, ir::ConeQP_IR, indices)
+    ir._all_affine_constraints = ir._all_affine_constraints[indices]
+    remove_affine_constraints_by_indices(program, indices)
+end
+
+function remove_inequality_constraints_by_indices(program::ConeQP, ir::ConeQP_IR, indices)
+    ir._all_inequality_constraints = ir._all_inequality_constraints[indices]
+    remove_inequality_constraints_by_indices(program, indices)
+end
+
+function apply_regularization(program::ConeQP, ir::ConeQP_IR, tol=1e-9)
+    @info "Performing RRQR regularization"
+    inds = rrqr(program, tol)
+    remove_affine_constraints_by_indices(program, ir, inds)
+end
