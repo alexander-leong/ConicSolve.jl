@@ -98,6 +98,9 @@ end
 
 function set_column_indices!(program::ConeQP, constraint::ConicExpression, v::Matrix{Float64})
     inds = get_indices_of_constraint(program, constraint.cone)
+    if maximum(constraint.inds) > size(v, 2)
+        throw(DimensionMismatch("One or more constraints do not have the correct dimensions"))
+    end
     v[:, inds[constraint.inds]] = constraint.lhs
     return v
 end
