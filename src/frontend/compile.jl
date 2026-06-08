@@ -220,6 +220,13 @@ function set_objective(ir::ConeQP_IR, cone::Cone, c::Vector{Float64})
     push!(ir.obj, primal_obj)
 end
 
+function set_objective(program_int::ProgramInterface, cone::Cone, P::Matrix{Float64}, c::Vector{Float64}=[])
+    set_objective(program_int.ir, cone, P, c)
+end
+function set_objective(program_int::ProgramInterface, cone::Cone, c::Vector{Float64})
+    set_objective(program_int.ir, cone, c)
+end
+
 export set_objective
 
 function add_slack_variable(program::ConeQP, cone::Cone, p::Int64)
@@ -311,6 +318,7 @@ function define_program(program::ConeQP, obj::ObjectiveFunction, args...)
         out_program = dispatch(program_int, arg, program_args...)
     end
     for arg in implicit_equality_constraints
+        # TODO
         out_program = parse_arg(program_int, arg)
     end
     ir.num_slack_vars = get_size(program, ir.ids_implicit_cones)

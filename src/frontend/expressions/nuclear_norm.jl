@@ -26,7 +26,7 @@ end
 
 export NuclearNorm
 
-mutable struct NuclearNormExpression
+mutable struct NuclearNormExpression <: BaseExpression
     cone::PSDCone
     constraint::ConicExpression{PSDCone}
     sdp::NuclearNormSDP

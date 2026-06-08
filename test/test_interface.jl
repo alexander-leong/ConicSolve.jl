@@ -80,37 +80,46 @@ end
     program = build_program(program)
 end
 
-@testset "minimize l1 norm with vector c" begin
+@testset "constraint from cone indexing" begin
     program = ConeQP()
 
     x = add_variable(program, NonNegativeOrthant(6), 6)
 
-    A::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
-        0. 1. 0. 1. 0. 1.;
-        0. 0. 1. 1. 0. 1.]
-    b::Vector{Float64} = [1., 2., 4.]
-    c = ones(6)
-
     program = define_program(program,
-                minimize(l1(c, x)),
-                A * x == b)
+                x[1] == [1.0])
     program = build_program(program)
 end
 
-# @testset "minimize l2 norm with vector c" begin
+# @testset "minimize l1 norm with vector c" begin
 #     program = ConeQP()
 
-#     x = add_variable(program, NonNegativeOrthant(3), 3)
+#     x = add_variable(program, NonNegativeOrthant(6), 6)
 
-#     A::Vector{Float64} = [1., 0., 0., 1., 0., 1.]
+#     A::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
+#         0. 1. 0. 1. 0. 1.;
+#         0. 0. 1. 1. 0. 1.]
 #     b::Vector{Float64} = [1., 2., 4.]
-#     c = ones(4)
+#     c = ones(6)
 
 #     program = define_program(program,
-#                 minimize(l2(A, x)),
+#                 minimize(l1(c, x)),
 #                 A * x == b)
 #     program = build_program(program)
 # end
+
+@testset "minimize l2 norm with vector c" begin
+    program = ConeQP()
+
+    x = add_variable(program, SecondOrderCone(6), 6)
+
+    A::Vector{Float64} = [1., 0., 0., 1., 0., 1.]
+    b::Vector{Float64} = [1.]
+
+    program = define_program(program,
+                minimize(l2(A, x)),
+                A * x == b)
+    program = build_program(program)
+end
 
 @testset "lmi in matrix form wrt cone" begin
     program = ConeQP()

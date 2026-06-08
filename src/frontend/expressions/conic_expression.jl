@@ -13,6 +13,17 @@ import Base.>=
 import Base.:∈
 import Base.:in
 
+abstract type BaseExpression end
+
+function Base.:+(lhs::Union{Vector{<:BaseExpression}, T}, rhs::U) where {T<:BaseExpression, U<:BaseExpression}
+    return lhs isa Vector ? [lhs..., rhs] : [lhs, rhs]
+end
+
+function Base.:-(lhs::Union{Vector{<:BaseExpression}, T}, rhs::U) where {T<:BaseExpression, U<:BaseExpression}
+    constraint = -rhs.constraints
+    return lhs isa Vector ? [lhs..., constraint] : [lhs, constraint]
+end
+
 """
     ConicExpression
 
@@ -35,7 +46,7 @@ i.e. lhs * x ≤ₖ rhs
 - if ``k`` is the SecondOrderCone, this is the 2-norm less than or equal to some scalar.
 - if ``k`` is the PSDCone, this is the variable in terms of the positive semidefinite matrix.
 """
-mutable struct ConicExpression{T<:Cone}
+mutable struct ConicExpression{T<:Cone} <: BaseExpression
     cone::T
     inds::Union{UnitRange{Int64}, Int64}
     lhs::Union{Float64, VecOrMat{Float64}}
@@ -226,15 +237,26 @@ end
 
 export ProgramInterface
 
+function parse_arg(program_int::ProgramInterface, arg::Vector{<:BaseExpression})
+    for obj in arg
+        parse_arg(program_int, obj)
+    end
+end
+
+function parse_obj_arg(program_int::ProgramInterface, arg::Vector{<:BaseExpression})
+    last_obj = nothing
+    for obj in arg
+        last_obj = parse_obj_arg(program_int, obj)
+    end
+    return last_obj
+end
+
 function parse_arg(program_int::ProgramInterface, arg::ConicExpression{<:Cone})
     push!(program_int.ir._all_affine_constraints, arg)
     return program_int
 end
 
 function parse_arg(program_int::ProgramInterface, arg::IntersectingConstraint{<:Cone, <:Cone})
-    program = program_int.cone_qp
-    aux_vars = program.aux_vars
-    push!(aux_vars.cones, arg.cone)
     push!(program_int.ir._all_inequality_constraints, arg.constraint)
     return program_int
 end
@@ -247,6 +269,9 @@ end
 function parse_obj_arg(program_int::ProgramInterface, arg::Tuple{Vector{Float64}, IntersectingConstraint{<:Cone, <:Cone}})
     c, intersecting_constraint = arg
     set_objective(program_int.ir, intersecting_constraint.constraint.cone, c)
+    program = program_int.cone_qp
+    aux_vars = program.aux_vars
+    push!(aux_vars.cones, intersecting_constraint.cone)
     parse_arg(program_int.cone_qp, intersecting_constraint)
     return program_int
 end

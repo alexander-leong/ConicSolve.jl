@@ -51,7 +51,6 @@ include("expressions/nuclear_norm.jl")
 include("expressions/l1_norm.jl")
 include("expressions/l2_norm.jl")
 include("expressions/symmetric_group.jl")
-include("operators.jl")
 
 function Base.:*(lhs::VecOrMat{Float64}, cone::T) where T <: Cone
     return ConicExpression(cone, lhs, Float64[])
@@ -70,7 +69,11 @@ function Base.:(==)(cone::T, rhs::Vector{Float64}) where T<:Cone
 end
 
 function Base.getindex(cone::T, inds::Union{UnitRange{Int64}, Int64}) where {T<:Cone}
-    constraint = ConicExpression(cone, nothing, nothing)
+    m = length(inds)
+    n = get_size(cone)
+    lhs = zeros((m, n))
+    lhs[:, inds] .= 1
+    constraint = ConicExpression(cone, lhs, zeros(n))
     constraint.inds = inds
     return constraint
 end

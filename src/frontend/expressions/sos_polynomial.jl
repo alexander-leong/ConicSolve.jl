@@ -27,7 +27,7 @@ mutable struct PolynomialFunction
                             f)
 end
 
-mutable struct PSDExpression
+mutable struct PSDExpression <: BaseExpression
     expression::ConicExpression
 
     function PSDExpression(lhs::Union{Float64, VecOrMat{Float64}}, rhs::Union{AbstractArray{Float64}, Float64})

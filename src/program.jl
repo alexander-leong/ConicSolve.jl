@@ -273,11 +273,11 @@ function check_program(cone_qp::ConeQP)
     end
     cone_qp.inds_c = 1:size(G)[2]
     if size(G)[2] != length(c)
-        throw(DimensionMismatch("Number of columns of G does not equal c"))
+        throw(DimensionMismatch("Number of columns of G, $(size(G, 2)) does not equal c, $(length(c))"))
     end
     if b != undef && !isnothing(b)
         if size(A)[1] != length(b)
-            throw(DimensionMismatch("Number of rows of A does not equal b"))
+            throw(DimensionMismatch("Number of rows of A, $(size(A, 1)) does not equal b, $(length(b))"))
         else
             cone_qp.inds_b = cone_qp.inds_c[end]+1:cone_qp.inds_c[end]+size(A)[1]
             cone_qp.inds_h = cone_qp.inds_b[end]+1:cone_qp.inds_b[end]+size(G)[1]
@@ -286,14 +286,10 @@ function check_program(cone_qp::ConeQP)
         cone_qp.inds_h = cone_qp.inds_c[end]+1:cone_qp.inds_c[end]+size(G)[1]
     end
     if size(G)[1] != length(h)
-        throw(DimensionMismatch("Number of rows of G does not equal h"))
+        throw(DimensionMismatch("Number of rows of G, $(size(G, 1)) does not equal h, $(length(h))"))
     end
     cone_qp.is_feasibility_problem = (P != undef && !isnothing(P) && P != zeros(size(P)) || c != zeros(size(G)[2]))
     set_cones_inds(cone_qp)
-    total_size = get_size(cone_qp.vars)
-    if size(G, 1) != total_size
-        throw(DimensionMismatch("Number of rows of G, $(size(G, 1)) does not equal total size of cones, $(total_size)"))
-    end
 end
 
 function get_variable_primal(program::ConeQP)
