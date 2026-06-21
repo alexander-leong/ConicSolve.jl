@@ -228,7 +228,7 @@ function reduce_cone_program(program_int::ProgramInterface,
                              orig_solver::ConicSolve.Solver,
                              cone::Cone,
                              store_iterates=false,
-                             tol=2e-2,
+                             tol=1e-3,
                              truncation_tol=1e-3)
     reduced_status = nothing
     out_program = get_subproblem(program_int, orig_solver.program, cone)
@@ -314,7 +314,7 @@ Returns the solutions for each subproblem and corresponding solvers used for eac
 function run_fr_solver(program,
                        solver::ConicSolve.Solver,
                        store_iterates=false,
-                       tol=2e-2,
+                       tol=1e-3,
                        truncation_tol=1e-3)
     # perform facial reduction on solver problem
     problem = FacialReduction()

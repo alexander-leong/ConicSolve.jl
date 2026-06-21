@@ -91,7 +91,7 @@ mutable struct Solver
                     tol_optimality=1e-2,
                     max_iterations=200,
                     time_limit_sec=1e6,
-                    η=0.0,
+                    η=nothing,
                     γ::Float64=1.0,
                     cb_before_iteration=nothing,
                     cb_after_iteration=nothing)
@@ -139,7 +139,7 @@ mutable struct Solver
                     tol_optimality=1e-2,
                     max_iterations=200,
                     time_limit_sec=1e6,
-                    η=0.0,
+                    η=nothing,
                     γ::Float64=1.0,
                     cb_before_iteration=nothing,
                     cb_after_iteration=nothing)

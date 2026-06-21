@@ -254,13 +254,18 @@ end
 
 Returns the affine constraints as a matrix required for determining if a polynomial, p is SOS.
 """
-function get_polynomial_equality_constraint_from_coefficients(sos_p, rhs=0)
+function get_polynomial_equality_constraint_from_coefficients(sos_p::SOS, rhs=0)
     p = sos_p.p - rhs
-    ps = collect(monomials(p))
     char_map = sos_p.sos.char_map
+    n = length(char_map)
+    A, b, ps = get_polynomial_equality_constraint_from_coefficients(p, n, char_map)
+    return A, b, sos_p.sos.n, ps
+end
+
+function get_polynomial_equality_constraint_from_coefficients(p::Polynomial, n, char_map)
+    ps = collect(monomials(p))
     coeffs = DynamicPolynomials.coefficients(p)
     m = length(coeffs)
-    n = Int(sos_p.sos.n * (sos_p.sos.n + 1) / 2)
     A = zeros((m, n))
     # assemble affine constraints by matching coefficients (page 62 of Blekherman, Parrilo, Thomas)
     for (i, m) in enumerate(ps)
@@ -275,10 +280,54 @@ function get_polynomial_equality_constraint_from_coefficients(sos_p, rhs=0)
         end
     end
     b = coeffs
-    return A, b, sos_p.sos.n, ps
+    return A, b, ps
+end
+
+function get_polynomial_equality_constraint_from_coefficients(p::Polynomial, basis)
+    n = length(basis)
+    pmap2d = basis * basis'
+    char_map = get_vec_inds_map(pmap2d)
+    A, b, ps = get_polynomial_equality_constraint_from_coefficients(p, n, char_map)
+    return A, b, ps
 end
 
 export get_polynomial_equality_constraint_from_coefficients
+
+function get_polynomial_from_psd_matrix(Q::Matrix{Float64}, basis)
+    return basis' * Q * basis
+end
+
+export get_polynomial_from_psd_matrix
+
+function get_polynomial_coefficients_from_psd_matrix(Q::Matrix{Float64}, basis)
+    pmap2d = basis * basis'
+    char_map = get_vec_inds_map(pmap2d)
+    coefficients = Dict([zip(keys(char_map), zeros(length(keys(char_map))))])
+    for i in axes(basis)
+        for j in i:length(basis)
+            char = basis[i] * basis[j]
+            if i == j
+                coefficients[char] += 2 * Q[i, j]
+            else
+                coefficients[char] += Q[i, j]
+            end
+        end
+    end
+    return coefficients
+end
+
+export get_polynomial_coefficients_from_psd_matrix
+
+function get_polynomial(Q::Matrix{Float64}, basis)
+    coefficients = get_polynomial_coefficients_from_psd_matrix(Q, basis)
+    p = 0
+    for c in coefficients
+        p += c.second * c.first
+    end
+    return p
+end
+
+export get_polynomial
 
 """
     add_polynomial_inequality_constraint(sos, h, p)
