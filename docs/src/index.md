@@ -32,27 +32,63 @@ Pkg.add("ConicSolve")
 using ConicSolve
 ```
 
-### GPU Acceleration
-
-ConicSolve.jl uses CUDA.jl to accelerate matrix factorization methods for solving the KKT equations. Refer to [CUDA.jl](https://cuda.juliagpu.org/stable/installation/overview/) for additional installation requirements.
-
-Note: \
-GPU Acceleration from running ConicSolve.jl as a standalone binary executable is currently not supported.
-
-Enable GPU acceleration via the following code snippet
-```julia
-using CUDA
-using ConicSolve
-```
-
-Ensure the solver property `solver.device = GPU` has been set.
-
 # How to use
 There are two ways to construct an optimization problem in ConicSolve.jl
-1. Using the Low Level API
-2. Using models to precompute matrices before invoking the low level API
+1. Declarative API
+2. Using the Low Level API
+
+### Using the Declarative API
+The declarative API requires problems be expressed in the form
+```math
+\begin{aligned}
+\text{minimize}\qquad &
+(1/2)x^TPx + c^Tx \\
+\text{subject to}\qquad &
+Ax = b \\
+& x \succeq 0
+\end{aligned}
+```
+As an example, the following constrained optimization feasiblity problem
+```math
+\begin{aligned}
+\text{minimize}\qquad &
+0 \\
+\text{subject to}\qquad &
+x_{1} + x_{4} + x_{6} + x_{7} + x_{10} + x_{12} = 1 \\
+& x_{2} + x_{4} + x_{6} + x_{8} + x_{9} + x_{10} + x_{12} = 2 \\
+& x_{3} + x_{4} + x_{6} + x_{7} + x_{10} + x_{12} = 4 \\
+& [x_{1}, x_{2}, x_{3}, x_{4}, x_{5}, x_{6}] \in R_+^6 \\
+& \begin{bmatrix}
+x_{7} & x_{8} & x_{9} \\
+x_{8} & x_{10} & x_{11} \\
+x_{9} & x_{11} & x_{12}
+\end{bmatrix} \in S_+^3
+\end{aligned}
+```
+can be expressed declaratively as
+```julia
+julia> program = ConeQP()
+
+julia> x1 = add_variable(program, NonNegativeOrthant(6), 6)
+julia> x2 = add_variable(program, PSDCone(3), 3)
+
+julia> A1::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
+    0. 1. 0. 1. 0. 1.;
+    0. 0. 1. 1. 0. 1.]
+julia> A2::Matrix{Float64} = [1. 0. 0. 1. 0. 1.;
+    0. 1. 1. 1. 0. 1.;
+    1. 0. 0. 1. 0. 1.]
+julia> b::Vector{Float64} = [1., 2., 4.]
+
+julia> define_program(program,
+            (A1 * x1) + (A2 * x2) == b)
+julia> program = build_program(program)
+julia> solver = Solver(program)
+julia> run_solver(solver)
+```
 
 ### Using the Low Level API
+Alternatively, cone programs can be defined by supplying the raw solver matrices and vectors. Below is an example of how to use the Low Level API
 ```julia
 julia> using ConicSolve
 julia> p_1 = 16 # for example, 16 x 16 SDP matrix
@@ -71,7 +107,12 @@ julia> solver = Solver(cone_qp)
 julia> run_solver(solver)
 ```
 
-### Using an SDP Model
+### Using a model
+Models serve two purposes:
+- To provide a means to represent specific types of cone programs
+- To provide a common set of subroutines to construct cone programs
+
+An example of using an SDP model to construct a cone program is given below
 ```julia
 julia> using ConicSolve
 julia> data = [] # your data here
@@ -98,6 +139,21 @@ In the examples directory you will find several examples which gives an idea of 
     url = {https://github.com/alexander-leong/ConicSolve.jl}
 }
 ```
+
+### GPU Acceleration
+
+ConicSolve.jl uses CUDA.jl to accelerate matrix factorization methods for solving the KKT equations. Refer to [CUDA.jl](https://cuda.juliagpu.org/stable/installation/overview/) for additional installation requirements.
+
+Note: \
+GPU Acceleration from running ConicSolve.jl as a standalone binary executable is currently not supported.
+
+Enable GPU acceleration via the following code snippet
+```julia
+using CUDA
+using ConicSolve
+```
+
+Ensure the solver property `solver.device = GPU` has been set.
 
 # Contributions
 

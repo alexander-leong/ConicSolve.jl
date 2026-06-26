@@ -6,7 +6,7 @@ file in the root directory
 =#
 
 """
-    SDP
+    NuclearNormSDP
 
 Represents a Semidefinite Program (SDP). \\
 i.e. An optimization of the form
@@ -21,7 +21,7 @@ Ax = b \\\\
 ``` \\
 NOTE: Linear Matrix Inequalities not supported yet.
 """
-mutable struct SDP
+mutable struct NuclearNormSDP
     A
     G
     P
@@ -37,7 +37,7 @@ mutable struct SDP
 
     # X = [X_2 X_1; X_1' X_4]
     """
-        SDP(X_1)
+        NuclearNormSDP(X_1)
     
     Constructs an SDP optimization problem. \\
     NOTE: only elements of X_1 can be set for now. \\
@@ -52,25 +52,33 @@ mutable struct SDP
     # Parameters:
     * `X_1`: The block matrix X_1 of the SDP matrix X
     """
-    function SDP(X_1)
+    function NuclearNormSDP(X_1)
+        return NuclearNormSDP(X_1, sum(size(X_1)))
+    end
+    function NuclearNormSDP(X_1, dims)
         sdp = new()
-        sdp.num_rows = size(X_1)[1] + size(X_1)[2]
-        sdp.num_cols = sdp.num_rows
+        sdp.num_rows = dims[1]
+        sdp.num_cols = dims[2]
         sdp.cones = []
         push!(sdp.cones, PSDCone(sdp.num_rows))
         sdp.idx = CartesianIndices((sdp.num_rows, sdp.num_cols))
         sdp.X_1 = X_1
-        sdp.X_1_idx = sdp.idx[1:size(X_1)[1], end - size(X_1)[2]:end][:]
+        sdp.X_1_idx = sdp.idx[1:dims[1], end - dims[2]+1:end][:]
         return sdp
     end
 end
+
+function get_size(sdp::NuclearNormSDP)
+    return sdp.num_rows
+end
+export get_size
 
 """
     set_nonnegative_constraint(sdp)
 
 Impose a nonnegative constraint on all values of the SDP matrix.
 """
-function set_nonnegative_constraint(sdp::SDP)
+function set_nonnegative_constraint(sdp::NuclearNormSDP)
     p = Int((sdp.num_rows * (sdp.num_rows + 1)) / 2)
     push!(sdp.cones, NonNegativeOrthant(p))
     G = get_off_diag_nonnegative_constraint(sdp.A)
@@ -83,7 +91,7 @@ end
 Set the objective function of the SDP, which is the function
 ``\\langle c, x \\rangle``
 """
-function set_objective(sdp::SDP, c)
+function set_objective(sdp::NuclearNormSDP, c)
     sdp.c = c
 end
 
@@ -98,7 +106,7 @@ if mask[i, j]
 end
 ```
 """
-function set_values(sdp::SDP, mask)
+function set_values(sdp::NuclearNormSDP, mask)
     # set psd constraint
     A, G, b = set_off_diag_constraint(sdp, sdp.X_1, mask)
     sdp.A = A
@@ -111,8 +119,10 @@ end
 
 Get the Cone QP object representing the SDP problem
 """
-function sdp_to_qp(sdp::SDP)
+function sdp_to_qp(sdp::NuclearNormSDP)
     sdp.P = zeros((size(sdp.A)[2], size(sdp.A)[2]))
+    
+    sdp.G = -Matrix(1.0I, size(sdp.A)[2], size(sdp.A)[2])
     sdp.h = zeros(size(sdp.G)[1])
     cone_qp = ConeQP(sdp.A, sdp.G, sdp.P, sdp.b, sdp.c, sdp.h, sdp.cones)
     return cone_qp
@@ -129,7 +139,7 @@ X = \\begin{bmatrix}
 \\end{bmatrix}
 ```
 """
-function get_X1(sdp::SDP, x)
+function get_X1(sdp::NuclearNormSDP, x)
     X1_idx = vec(get_img_transposed_idx_in_A(sdp.idx, x))
     X1 = x[X1_idx]
     return X1
@@ -141,7 +151,7 @@ end
 Set the values of the vector b in ConeQP based on
 the data matrix.
 """
-function set_b_from_data(sdp::SDP, data)
+function set_b_from_data(sdp::NuclearNormSDP, data)
     dim = size(sdp.idx)
     X_size = Int((dim[1] * (dim[1] + 1)) / 2)
     b = zeros(X_size)
@@ -166,7 +176,7 @@ of the data matrix to keep.
 The precomputed matrices A, G and the vector b to pass
 as arguments to ConeQP.
 """
-function set_off_diag_constraint(sdp::SDP, data, mask)
+function set_off_diag_constraint(sdp::NuclearNormSDP, data, mask)
     dim = (sdp.num_rows, sdp.num_cols)
     X_size = Int((dim[1] * (dim[1] + 1)) / 2)
 
@@ -183,10 +193,19 @@ function set_off_diag_constraint(sdp::SDP, data, mask)
     # omit zero rows in A and respective entries in b
     A, inds = dropzero_rows(A)
     b = b[inds]
-    
-    G = -Matrix(1.0I, size(A)[2], size(A)[2])
 
-    return A, G, b
+    return A, b
+end
+
+abstract type FixedValue end
+export FixedValue
+
+function get_trace(dims)
+    c_ones = map(x -> CartesianIndex(x[1], x[1]), 1:dims[1])
+    c_ones = lower_triangular_from_2d_idx(dims[1], c_ones)
+    c = zeros(Int((dims[1] * (dims[1] + 1)) / 2))
+    c[c_ones] .= 1
+    return c
 end
 
 """
@@ -199,13 +218,9 @@ in the objective function.
 
 The vector c to pass as argument to ConeQP.
 """
-function get_trace(sdp::SDP)
-    dim = (sdp.num_rows, sdp.num_cols)
-    c_ones = map(x -> CartesianIndex(x[1], x[1]), 1:dim[1])
-    c_ones = lower_triangular_from_2d_idx(dim[1], c_ones)
-    c = zeros(Int((dim[1] * (dim[1] + 1)) / 2))
-    c[c_ones] .= 1
-    return c
+function get_trace(sdp::NuclearNormSDP)
+    dims = (sdp.num_rows, sdp.num_cols)
+    return get_trace(dims)
 end
 
 """
@@ -223,7 +238,7 @@ function get_off_diag_nonnegative_constraint(A)
     return G
 end
 
-export SDP
+export NuclearNormSDP
 export set_nonnegative_constraint
 export set_objective
 export set_values

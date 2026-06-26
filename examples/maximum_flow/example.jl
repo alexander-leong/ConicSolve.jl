@@ -32,8 +32,6 @@ function get_graph()
     return G, min_G
 end
 
-export get_graph
-
 function get_a(i, n)
     A_vec = zeros((n, n))
     A_vec[i, :] .= -1
@@ -43,76 +41,32 @@ function get_a(i, n)
     return a
 end
 
-function get_A(min_G)
-    return vcat([get_a(i, size(min_G)[2])' for i=2:size(min_G)[2]-1]...)
-end
-
-function get_G(G)
-    G = [G'; -G']
-    return G
-end
-
 function get_c(min_G)
-    c_vec = zeros((size(min_G)[2], size(min_G)[2]))
+    n = size(min_G)[2]
+    c_vec = zeros((n, n))
     c_vec[1, :] .= -1
     c = vec(c_vec)
     return c
 end
 
-function get_h(G, min_G)
-    h = vec(G)
-    h_min = -vec(min_G)
-    h = [h; h_min]
-    return h
-end
-
-export get_A
-export get_G
-export get_c
-export get_h
-
-function get_problem_parameters(G, min_G)
-    # Set capacity constraints
-    h = get_h(G, min_G)
-    G = get_G(G)
-    # Set flow conservation constraints
-    A = get_A(min_G)
-    P = zeros((size(A)[2], size(A)[2]))
-    b = zeros(size(A)[1])
-    # Set objective
-    c = get_c(min_G)
-    return A, G, P, b, c, h
-end
-
-function get_qp(G, min_G)
-    A, G, P, b, c, h = get_problem_parameters(G, min_G)
-    cones::Vector{Cone} = []
-    n = size(G)[1]
-    push!(cones, NonNegativeOrthant(n))
-    cone_qp = ConeQP(A, G, P, b, c, h, cones)
-    return cone_qp
-end
-
 function run_example()
-    G, min_G = get_graph()
-    cone_qp = get_qp(G, min_G)
-    kktsolve = "qrchol"
-    solver = Solver(cone_qp, kktsolve)
-    solver.max_iterations = 10
-    status = run_solver(solver)
+    G_vals, min_G = get_graph()
+    G = Matrix{Float64}(I, (length(G_vals), length(G_vals)))
+    c = get_c(min_G)
 
-    KKT_x = cone_qp.KKT_x
-    s = cone_qp.s
-    z = cone_qp.z
-    cone_qp = get_qp(G, min_G)
-    cone_qp.KKT_x = KKT_x
-    cone_qp.s = s
-    cone_qp.z = z
-    solver = Solver(cone_qp, kktsolve)
-    status = run_solver(solver, true)
-    return status
-    # TODO
-    # x = get_solution(solver)
+    program = ConeQP()
+    x = add_variable(program, NonNegativeOrthant(), size(G, 2))
+
+    n = size(min_G)[2]
+    define_program(program,
+                minimize(c * x),
+                vcat([get_a(i, n)' for i=2:n-1]...) * x == 0.,
+                [G'; -G'] * x <= [vec(G_vals); -vec(min_G)])
+    
+    program = build_program(program)
+    # solver = Solver(program)
+    # solver.max_iterations = 10
+    # run_solver(solver)
 end
 
 run_example()

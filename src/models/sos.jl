@@ -26,16 +26,16 @@ Multivariate polynomials and other monomial basis are not supported at this stag
 """
 mutable struct SOS
     A
-    G
     P
     b
     c
-    h
 
-    n # order of polynomial
+    n # order of sos problem
     p_inds # indices of each monomial of order n in A
     diag_inds
     cones::Vector{Cone}
+
+    char_map
 
     """
         SOS(n)
@@ -45,55 +45,30 @@ mutable struct SOS
     # Parameters:
     * `n`: The order of the polynomial
     """
-    function SOS(n)
+    function SOS(n::Int, variables)
         sos = new()
         sos.cones = []
         sos.p_inds = []
         push!(sos.cones, PSDCone(n))
         sos.n = n
         sos.diag_inds = get_diagonal_idx(n)
-        d = sos.n - 1
-        A_size = Int(((d + 1) * (d + 2)) / 2)
         # set SOS constraints
-        sos.A = get_A_matrix(sos)
-        num_vars = size(sos.A)[2]
-        G = -Matrix(1.0I, num_vars, num_vars)
-        sos.G = G
-        sos.b = zeros(size(sos.A)[1])
-        sos.h = zeros(size(sos.G)[1])
+        sos.A = []
+        sos.b = []
+        
+        pbasis = collect(maxdegree_basis(MonomialBasis, variables, n-1))
+        pmap2d = pbasis * pbasis'
+        sos.char_map = get_vec_inds_map(pmap2d)
         return sos
     end
 end
 
-function get_a_row(i, mask)
-    for u = size(mask)[1]-i:size(mask)[1]
-        mask[u, i + 1 - (size(mask)[1] - u)] = 1.0
-    end
-    val = mat_to_lower_vec(mask)
-    return val
+mutable struct SOSPolynomial
+    p::DynamicPolynomials.Polynomial
+    sos::SOS
 end
 
-function get_A_matrix(sos::SOS)
-    d = sos.n - 1
-    A_size = Int(((d + 1) * (d + 2)) / 2)
-    A = zeros((d+1, A_size))
-    A = hcat(A, -I(d+1))
-    # get mask of V'V (V for Vandermonde) matrix to set SOS constraint
-    mask = [zeros(Float64, (d+1, d+1)) for _ = 1:d]
-    rows = 2:size(A)[1]
-    cols = 1:A_size
-    push!(sos.p_inds, A_size)
-    # set constraints for monomial terms of order 1 and above
-    for (k, v) in enumerate(mask)
-        num_inds = size(v)[1] - (size(v)[1] - k - 1)
-        push!(sos.p_inds, sos.p_inds[end] - num_inds)
-        A[rows[k], cols] = get_a_row(k, v)
-    end
-    reverse!(sos.p_inds)
-    # set constraint for the constant term in the polynomial (order 0)
-    A[1, d+1] = 1
-    return A
-end
+export SOSPolynomial
 
 """
     get_inds_2d(sos, n)
@@ -217,30 +192,48 @@ function evaluate_monomials(p, v)
     return vs
 end
 
+function variable_from_term(term)
+    return effective_variables(monomial(term))[end]
+end
+
+function polynomial_substitute(p, s)
+    p_subs = subs(p, s)
+    p_result = p
+    if isconstant(p_subs)
+        return p_subs
+    end
+    for term in terms(p_subs)
+        c = coefficient(term)
+        v = variable_from_term(term)
+        p_result = subs(p_result, v=>c)
+    end
+    return p_result
+end
+
+export polynomial_substitute
+
 """
     add_polynomial_equality_constraint(sos, b, p)
 
 Set an equality constraint on the polynomial to equal the value b.
 """
 function add_polynomial_equality_constraint(sos::SOS, b, p)
-    A = zeros((1, size(sos.A)[2]))
-    for i = eachindex(p)
-        i_inds = get_inds(sos, i)
-        A[i_inds] .= p[i]
+    A = zeros((1, get_size(sos.cones[end])))
+    c = coefficient(p, constant_monomial(p))
+    b -= c
+    for term in terms(p - c)
+        term_var = monomial(term)
+        term_idx = sos.char_map[term_var][end]
+        idx = term_idx[end]
+        A[idx] = coefficient(term)
     end
-    sos.A = vcat(sos.A, A)
-    sos.b = vcat(sos.b, b)
-end
-
-function add_polynomial_equality_constraint(sos::SOS, b, p, v)
-    p = evaluate_monomials(p, v)
-    add_polynomial_equality_constraint(sos, b, p)
+    return A, [b]
 end
 
 """
-    get_vec_inds_map(items)
+    get_vec_inds_map(A)
 
-Given a list of monomials, items, return a dictionary from monomial to list of indices to the vectorized coefficient matrix, Q.
+Given a list of monomials from A, returns a dictionary from monomial to list of indices to the vectorized coefficient matrix, Q.
 """
 function get_vec_inds_map(A)
     T = Tuple{Tuple{Int64, Int64}, Int64}
@@ -261,16 +254,18 @@ end
 
 Returns the affine constraints as a matrix required for determining if a polynomial, p is SOS.
 """
-function get_polynomial_equality_constraint_from_coefficients(p, rhs=0)
-    p = p - rhs
+function get_polynomial_equality_constraint_from_coefficients(sos_p::SOS, rhs=0)
+    p = sos_p.p - rhs
+    char_map = sos_p.sos.char_map
+    n = length(char_map)
+    A, b, ps = get_polynomial_equality_constraint_from_coefficients(p, n, char_map)
+    return A, b, sos_p.sos.n, ps
+end
+
+function get_polynomial_equality_constraint_from_coefficients(p::Polynomial, n, char_map)
     ps = collect(monomials(p))
     coeffs = DynamicPolynomials.coefficients(p)
-    d = maxdegree(p)
-    pbasis = collect(maxdegree_basis(MonomialBasis, variables(p), Int(d/2)))
-    pmap2d = pbasis * pbasis'
-    char_map = get_vec_inds_map(pmap2d)
     m = length(coeffs)
-    n = Int(size(pmap2d, 1) * (size(pmap2d, 1) + 1) / 2)
     A = zeros((m, n))
     # assemble affine constraints by matching coefficients (page 62 of Blekherman, Parrilo, Thomas)
     for (i, m) in enumerate(ps)
@@ -280,16 +275,59 @@ function get_polynomial_equality_constraint_from_coefficients(p, rhs=0)
             if k == l # coefficient on the diagonal
                 A[i, j[end]] = 1
             else # coefficient off diagonal
-                A[i, j[end]] = 2
+                A[i, j[end]] = 2 # two cross-terms e.g. ab + ba
             end
         end
     end
     b = coeffs
-    println(size(A))
-    return A, b, size(pmap2d, 1), ps
+    return A, b, ps
+end
+
+function get_polynomial_equality_constraint_from_coefficients(p::Polynomial, basis)
+    n = length(basis)
+    pmap2d = basis * basis'
+    char_map = get_vec_inds_map(pmap2d)
+    A, b, ps = get_polynomial_equality_constraint_from_coefficients(p, n, char_map)
+    return A, b, ps
 end
 
 export get_polynomial_equality_constraint_from_coefficients
+
+function get_polynomial_from_psd_matrix(Q::Matrix{Float64}, basis)
+    return basis' * Q * basis
+end
+
+export get_polynomial_from_psd_matrix
+
+function get_polynomial_coefficients_from_psd_matrix(Q::Matrix{Float64}, basis)
+    pmap2d = basis * basis'
+    char_map = get_vec_inds_map(pmap2d)
+    coefficients = Dict([zip(keys(char_map), zeros(length(keys(char_map))))])
+    for i in axes(basis)
+        for j in i:length(basis)
+            char = basis[i] * basis[j]
+            if i == j
+                coefficients[char] += 2 * Q[i, j]
+            else
+                coefficients[char] += Q[i, j]
+            end
+        end
+    end
+    return coefficients
+end
+
+export get_polynomial_coefficients_from_psd_matrix
+
+function get_polynomial(Q::Matrix{Float64}, basis)
+    coefficients = get_polynomial_coefficients_from_psd_matrix(Q, basis)
+    p = 0
+    for c in coefficients
+        p += c.second * c.first
+    end
+    return p
+end
+
+export get_polynomial
 
 """
     add_polynomial_inequality_constraint(sos, h, p)
@@ -317,7 +355,10 @@ end
 Get the Cone QP object representing the SOS optimization problem
 """
 function sos_to_qp(sos::SOS)
-    cone_qp = ConeQP(sos.A, sos.G, sos.P, sos.b, sos.c, sos.h, sos.cones)
+    num_vars = size(sos.A)[2]
+    G = -Matrix(1.0I, num_vars, num_vars)
+    h = zeros(size(sos.G)[1])
+    cone_qp = ConeQP(sos.A, G, sos.P, sos.b, sos.c, h, sos.cones)
     return cone_qp
 end
 

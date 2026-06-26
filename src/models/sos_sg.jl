@@ -51,7 +51,7 @@ function invariant_constraint!(
     return M_orb
 end
 
-function set_A_i!(program, Mπs, b, equality_constraint_indices)
+function set_A_i!(program, ir, Mπs, b, equality_constraint_indices)
     j = 0
     m = 0
     for Mπs_j in Mπs
@@ -75,7 +75,7 @@ function set_A_i!(program, Mπs, b, equality_constraint_indices)
         # get vectorized lower triangular entries of Mπs[i]
         Mπ_vec = get_lt_vals(Mπs_j)
 
-        add_affine_constraint(program, cone, Mπ_vec, b)
+        add_affine_constraint(ir, cone, Mπ_vec, b)
         m += 1
     end
     return m
@@ -100,61 +100,6 @@ function get_monomial_basis(f, deg)
 	basis = DynamicPolynomials.monomials(vars, 0:deg) # basis_constraints
     basis_half = DynamicPolynomials.monomials(vars, 0:deg÷2) # basis_psd
     return basis, basis_half
-end
-
-"""
-    get_subproblem(in_program, cone)
-
-Constructs a program with objective and constraints with respect to the given cone.
-"""
-function get_subproblem(in_program::ConicSolve.ConeQP,
-                        cone::Cone)
-    # given initial problem, in_program, construct subproblem from constraints and objective with respect to given cone
-    out_program = ConicSolve.ConeQP()
-
-    affine_constraints = find_affine_constraints_by_cone(in_program, cone)
-    for constraint in affine_constraints
-        add_affine_constraint(out_program, cone, constraint.lhs, constraint.rhs)
-    end
-    inequality_constraints = find_inequality_constraints_by_cone(in_program, cone)
-    for constraint in inequality_constraints
-        add_inequality_constraint(out_program, cone, constraint.lhs, constraint.rhs)
-    end
-
-    inds = get_indices_of_constraint(in_program, cone)
-    obj = in_program.c[inds]
-    set_objective(out_program, cone, obj)
-
-    add_variable(out_program, cone, cone.p)
-
-    out_program = build_program(out_program, true)
-    return out_program
-end
-
-export get_subproblem
-
-mutable struct PolynomialFunction
-    basis
-    basis_half
-    basis_type
-    deg
-    f
-    PolynomialFunction() = new()
-    PolynomialFunction(basis,
-                        basis_half,
-                        basis_type,
-                        deg,
-                        f) = new(basis,
-                            basis_half,
-                            basis_type,
-                            deg,
-                            f)
-end
-
-mutable struct SymmetricGroupAction
-    f::PolynomialFunction
-    g::SymmetricGroup
-    pg::PermGroup
 end
 
 """
@@ -183,8 +128,10 @@ Symmetry reduced cone program with:
 - the summands object for the change of basis between the monomial basis and fixed-point subspace
 - the wedderburn decomposition performed
 """
-function wedderburn_decompose!(program::ConeQP,
+function wedderburn_decompose!(program_int::ProgramInterface,
                                group::SymmetricGroup)
+    program = program_int.cone_qp
+    ir = program_int.ir
     num_additional_vars=0
     x = variables(group.f)
     deg = DynamicPolynomials.maxdegree(group.f)
@@ -222,7 +169,7 @@ function wedderburn_decompose!(program::ConeQP,
         c = dot(C, iv)
 	    M_orb_ivc = invariant_constraint!(M_orb, M, iv)
         Mπs = SymbolicWedderburn.diagonalize(M_orb_ivc, wedderburn)
-        set_A_i!(program, Mπs, c, equality_constraint_indices)
+        set_A_i!(program, ir, Mπs, c, equality_constraint_indices)
     end
 
     polynomial_fn = PolynomialFunction(
@@ -235,7 +182,11 @@ function wedderburn_decompose!(program::ConeQP,
     
     @info "End of decompose, returning..."
     group_action = SymmetricGroupAction(polynomial_fn, group, pg)
-    return SymmetryReducedConeQP(program, group_action, summands, wedderburn, Vector{Int}([]))
+    return SymmetryReducedConeQP{SymmetricGroupAction}(
+        program_int, 
+        group_action, 
+        summands, 
+        wedderburn)
 end
 
 function get_mat_vec_len(psds)
@@ -246,12 +197,10 @@ end
 
 function get_summands_inds(summands, inds::Vector{Int})
     summands_inds = [0]
-    for (i, idx) in enumerate(inds)
+    for idx in inds
         n = get_size(PSDCone(size(summands[idx], 1)))
         push!(summands_inds, n)
-        summands_inds[i] += 1
     end
-    summands_inds[1] = 1
     return summands_inds
 end
 
@@ -262,12 +211,12 @@ Gets the solution to the symmetry reduced cone program in terms of the original 
 """
 function get_solution(program::SymmetryReducedConeQP)
     summands = program.summands
-    xs = get_solution(program.cone_qp)
+    xs = get_solution(program.program_int.cone_qp)
     n = size(summands[1], 2)
     result = zeros((n, n))
     cones_inds = get_summands_inds(summands, program._active_summands)
     for (i, idx) in enumerate(program._active_summands)
-        inds = cones_inds[i]:cones_inds[i+1]
+        inds = cones_inds[i]+1:cones_inds[i+1]
         result += summands[idx]' * mat(xs[inds]) * summands[idx]
     end
     return result

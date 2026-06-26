@@ -1,0 +1,24 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  documentation:
+    uses: ./.github/workflows/documentation.yml
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: read
+      statuses: write
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: 1.11.6
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+      - uses: julia-actions/julia-processcoverage@v1
+      - uses: codecov/codecov-action@v5
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

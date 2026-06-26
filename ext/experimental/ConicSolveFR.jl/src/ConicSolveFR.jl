@@ -44,15 +44,15 @@ function reduce_constraint(U::Matrix{Float64}, cone::PSDCone, constraint::ConicE
     return reduced_a
 end
 
-function reduce_affine_constraints(in_program::ConeQP, out_program::ConeQP, U::Matrix{Float64}, cone::Cone, n)
-    affine_constraints = find_affine_constraints_by_cone(in_program, cone)
+function reduce_affine_constraints(program_int::ProgramInterface, out_program_int::ProgramInterface, U::Matrix{Float64}, cone::Cone, n::Int)
+    affine_constraints = find_affine_constraints_by_cone(program_int.ir, cone)
     dims_before = get_size(cone)
-    reduced_cone = add_variable(out_program, cone, n)
+    reduced_cone = add_variable(out_program_int.cone_qp, cone, n)
     dims_after = get_size(cone)
     @info "Dimension of cone objectid=$(objectid(cone)) reduced from $(dims_before) to $(dims_after)"
     for constraint in affine_constraints
         reduced_a = reduce_constraint(U, cone, constraint)
-        add_affine_constraint(out_program, reduced_cone, reduced_a, constraint.rhs)
+        add_affine_constraint(out_program_int.ir, reduced_cone, reduced_a, constraint.rhs)
     end
     return reduced_cone
 end
@@ -72,7 +72,17 @@ function reduce_objective(U::Matrix{Float64}, c::Vector{Float64})
     return reduced_c
 end
 
-function project_to_min_face(x::Vector{Float64}, in_program::ConeQP, out_program::ConeQP, cone::Cone, tol=1e-3)
+function project_to_min_face(x::Vector{Float64}, in_program::ConeQP, out_program::ConeQP, cone::NonNegativeOrthant, tol=1e-3)
+    println("NOT HANDLED")
+    @assert false
+end
+
+function project_to_min_face(x::Vector{Float64}, in_program::ConeQP, out_program::ConeQP, cone::SecondOrderCone, tol=1e-3)
+    println("NOT HANDLED")
+    @assert false
+end
+
+function project_to_min_face(x::Vector{Float64}, program_int::ProgramInterface, out_program_int::ProgramInterface, cone::PSDCone, tol=1e-3)
     X = mat(x)
     F = svd(X)
     inds = findall(F.S .>= tol)
@@ -88,7 +98,7 @@ function project_to_min_face(x::Vector{Float64}, in_program::ConeQP, out_program
         return nothing, nothing, false, reduced_status
     end
 
-    reduced_cone = reduce_affine_constraints(in_program, out_program, U, cone, length(inds))
+    reduced_cone = reduce_affine_constraints(program_int, out_program_int, U, cone, length(inds))
     return U, reduced_cone, true, REDUCED_PROBLEM_UNSOLVED
 end
 
@@ -106,7 +116,7 @@ function expose_face(solver::ConicSolve.Solver)
     return s, s_perp
 end
 
-function log_best_iterate(solver::ConicSolve.Solver, i)
+function log_best_iterate(solver::ConicSolve.Solver, i::Int)
     status = get_solver_status(solver)
     program = solver.program
     y, _ = get_constraint_dual(program)
@@ -115,14 +125,19 @@ function log_best_iterate(solver::ConicSolve.Solver, i)
     log_iteration_status(status, i == 1, status.best_iterate, additional_data)
 end
 
-function reduce_cone(solver::ConicSolve.Solver, cone::Cone, orig_obj, tol=1e-1, truncation_tol=1e-3)
+function reduce_cone(program_int::ProgramInterface,
+                     solver::ConicSolve.Solver,
+                     cone::Cone,
+                     orig_obj,
+                     tol=1e-1,
+                     truncation_tol=1e-3)
     # return facial reduced problem as per Algorithm 1.1 Permenter 2017
-    Us = []
+    Us = Matrix{Float64}[]
     U = nothing
     i = 1
     reduced_cone = typeof(cone)(cone.p)
     reduced_obj = orig_obj
-    reduced_program = nothing
+    reduced_program_int = nothing
     reduced_status = REDUCED_PROBLEM_UNSOLVED
     while true
         # find s ∈ F* \ F\\^{\perp}
@@ -131,7 +146,7 @@ function reduce_cone(solver::ConicSolve.Solver, cone::Cone, orig_obj, tol=1e-1, 
         status = get_solver_status(solver)
         log_best_iterate(solver, i)
         if status.status_termination == ConicSolve.INFEASIBLE
-            @info "Face reduced from n = $(cone.p) to $(reduced_cone.p)"
+            @info "Face reduced to n = $(reduced_cone.p)"
             break
         end
 
@@ -140,8 +155,12 @@ function reduce_cone(solver::ConicSolve.Solver, cone::Cone, orig_obj, tol=1e-1, 
         end
         
         # set F = F ∩ s\\^{\perp}
-        reduced_program = ConicSolve.ConeQP()
-        U, reduced_cone, reduced, reduced_status = project_to_min_face(s_perp, solver.program, reduced_program, cone, truncation_tol)
+        reduced_program_int = ProgramInterface(ConicSolve.ConeQP())
+        U, reduced_cone, reduced, reduced_status = project_to_min_face(s_perp,
+                                                    program_int,
+                                                    reduced_program_int,
+                                                    cone,
+                                                    truncation_tol)
         if !isnothing(U)
             push!(Us, U)
         end
@@ -150,12 +169,13 @@ function reduce_cone(solver::ConicSolve.Solver, cone::Cone, orig_obj, tol=1e-1, 
             break
         end
         
-        add_default_inequality_constraint(reduced_program, reduced_cone)
+        add_default_inequality_constraint(reduced_program_int.ir, reduced_cone)
         
         # last chance to compute reduced objective, don't use it in auxiliary problem, just return it
         reduced_obj = reduce_objective(U, reduced_obj)
 
-        reduced_program = build_program(reduced_program)
+        reduced_program = build_program(reduced_program_int)
+        program_int = reduced_program_int # need to update for next iteration
         
         solver = Solver(reduced_program)
         solver.presolve_scaling_method = "ruiz"
@@ -168,19 +188,61 @@ function reduce_cone(solver::ConicSolve.Solver, cone::Cone, orig_obj, tol=1e-1, 
         i += 1
     end
 
-    return Us, i, reduced_cone, reduced_obj, reduced_program, reduced_status
+    return Us, i, reduced_cone, reduced_obj, reduced_program_int, reduced_status
 end
 
-function reduce_cone_program(orig_solver::ConicSolve.Solver, cone::Cone, store_iterates=false, tol=2e-2, truncation_tol=1e-3)
+"""
+    get_subproblem(program_int, in_program, cone)
+
+Constructs a program with objective and constraints with respect to the given cone.
+"""
+function get_subproblem(program_int::ProgramInterface,
+                        in_program::ConicSolve.ConeQP,
+                        cone::Cone)
+    # given initial problem, in_program, construct subproblem from constraints and objective with respect to given cone
+    ir = ConicSolve.ConeQP_IR()
+
+    affine_constraints = find_affine_constraints_by_cone(program_int.ir, cone)
+    for constraint in affine_constraints
+        add_affine_constraint(ir, cone, constraint.lhs, constraint.rhs)
+    end
+    inequality_constraints = find_inequality_constraints_by_cone(program_int.ir, cone)
+    for constraint in inequality_constraints
+        add_inequality_constraint(ir, cone, constraint.lhs, constraint.rhs)
+    end
+
+    inds = get_indices_of_constraint(in_program, cone)
+    obj = in_program.c[inds]
+    set_objective(ir, cone, obj)
+
+    out_program = ConicSolve.ConeQP()
+    add_variable(out_program, cone, cone.p)
+
+    out_program = build_program(ProgramInterface(out_program, ir), true)
+    return out_program
+end
+
+export get_subproblem
+
+function reduce_cone_program(program_int::ProgramInterface,
+                             orig_solver::ConicSolve.Solver,
+                             cone::Cone,
+                             store_iterates=false,
+                             tol=1e-3,
+                             truncation_tol=1e-3)
     reduced_status = nothing
-    out_program = get_subproblem(orig_solver.program, cone)
+    out_program = get_subproblem(program_int, orig_solver.program, cone)
     @info "Subproblem constructed"
     
     solver = ConicSolve.Solver(out_program)
     solver.presolve_scaling_method = "ruiz"
-    Us, i, reduced_cone, reduced_obj, reduced_program, reduced_status = reduce_cone(solver, cone, out_program.c, truncation_tol)
+    Us, i, reduced_cone, reduced_obj, reduced_program_int, reduced_status = reduce_cone(program_int, solver,
+                                                                            cone,
+                                                                            out_program.c,
+                                                                            truncation_tol)
     if reduced_status == ALREADY_FEASIBLE
         @info "Subproblem already feasible"
+        return nothing, reduced_status, nothing
     end
     if reduced_status == WEAK_CONSTRAINT
         return nothing, reduced_status, nothing
@@ -193,14 +255,15 @@ function reduce_cone_program(orig_solver::ConicSolve.Solver, cone::Cone, store_i
     @info "Subproblem reduced"
 
     # set objective of reduced problem
-    set_objective(reduced_program, reduced_cone, reduced_obj)
-    reduced_program = build_program(reduced_program)
+    reduced_program = build_program(reduced_program_int)
 
     # solve the reduced problem
     cone_subproblem_solver = ConicSolve.Solver(reduced_program)
     cone_subproblem_solver.tol_optimality = tol
     # suppress_logging(cone_subproblem_solver)
+
     ConicSolve.run_solver(cone_subproblem_solver, false, false, false)
+
     x = get_solution(cone_subproblem_solver)
     status = get_solver_status(cone_subproblem_solver)
     if status.status_termination != ConicSolve.INFEASIBLE
@@ -223,7 +286,7 @@ function reduce_cone_program(orig_solver::ConicSolve.Solver, cone::Cone, store_i
     return reproj_x, reduced_status, cone_subproblem_solver
 end
 
-function reproject_to_original_form(Us, x)
+function reproject_to_original_form(Us::Vector{Matrix{Float64}}, x::Vector{Float64})
     # U1 * mat(U2 * mat(...) * U2') * U1'
     Us = reverse(Us)
     reproj_x = mat(x)
@@ -235,11 +298,12 @@ function reproject_to_original_form(Us, x)
 end
 
 """
-    run_fr_solver(solver, store_iterates, tol, truncation_tol)
+    run_fr_solver(program, solver, store_iterates, tol, truncation_tol)
 
 Runs face reduction algorithm on the problem given by the solver.
 
 # Parameters:
+* `program`: The cone program
 * `solver`: The solver used with the given problem
 * `store_iterates`: Set to true to return a vector of solutions corresponding to each iterate
 * `tol`: absolute tolerance to determine exposed face (using duality gap)
@@ -247,17 +311,19 @@ Runs face reduction algorithm on the problem given by the solver.
 
 Returns the solutions for each subproblem and corresponding solvers used for each subproblem
 """
-function run_fr_solver(solver::ConicSolve.Solver,
+function run_fr_solver(program,
+                       solver::ConicSolve.Solver,
                        store_iterates=false,
-                       tol=2e-2,
+                       tol=1e-3,
                        truncation_tol=1e-3)
     # perform facial reduction on solver problem
     problem = FacialReduction()
     problem.solver = solver
-    in_program = solver.program
-    apply_regularization(in_program)
+    in_program = program.program_int.cone_qp
+    apply_regularization(in_program, program.program_int.ir)
 
     @info "### Executing face reduction ###"
+    program_int = program.program_int
     vars = in_program.vars
     x = []
     reduced_status = nothing
@@ -265,20 +331,28 @@ function run_fr_solver(solver::ConicSolve.Solver,
     for i = 1:length(vars.cones)
         cone = vars.cones[i]
         @info "Performing face reduction on cone $(i) of $(length(vars.cones))"
-        x_i, reduced_status, reduced_solver = reduce_cone_program(solver, cone, store_iterates, tol, truncation_tol)
-        if !(reduced_status in [REDUCED_PROBLEM_OPTIMAL, WEAK_CONSTRAINT])
-            @info "Face reduction unsuccessful $(reduced_status)"
-            return
+        x_i, reduced_status, reduced_solver = reduce_cone_program(program_int,
+                                                solver,
+                                                cone,
+                                                store_iterates,
+                                                tol,
+                                                truncation_tol)
+        if !(reduced_status in [ALREADY_FEASIBLE, REDUCED_PROBLEM_OPTIMAL, WEAK_CONSTRAINT])
+            @info "Face reduction unsuccessful, $(reduced_status)"
+            return [], []
         end
         push!(x, x_i)
         push!(reduced_solvers, reduced_solver)
     end
     @info "Face reduction completed"
-    return x, reduced_solvers
+    
+    x_vec = get_solution_from_iterate(program, x, 1)
+    return x_vec, reduced_solvers
 end
 
 function get_solution_from_iterate(program::SymmetryReducedConeQP, x_vec, it)
-    cone_qp = program.cone_qp
+    program_int = program.program_int
+    cone_qp = program_int.cone_qp
     x_vec_solution = []
     # TODO: improve handling of "nothing" for finding best solution
     for (i, x) in enumerate(x_vec)
@@ -292,16 +366,6 @@ function get_solution_from_iterate(program::SymmetryReducedConeQP, x_vec, it)
     cone_qp.KKT_x = vcat(x_vec_solution...)
     cone_qp.inds_c = 1:length(cone_qp.KKT_x)
     return x_vec_solution
-end
-
-function run_fr_solver(program::SymmetryReducedConeQP,
-                       solver::ConicSolve.Solver,
-                       store_iterates=false,
-                       tol=2e-2,
-                       truncation_tol=1e-3)
-    x_vec, reduced_solvers = run_fr_solver(solver, store_iterates, tol, truncation_tol)
-    x_vec = get_solution_from_iterate(program, x_vec, 1)
-    return x_vec, reduced_solvers
 end
 
 export run_fr_solver
