@@ -1,0 +1,23 @@
+name: Agentic Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches:
+      - main
+
+# Forces GitHub to auto-abort older runs if a new push lands before the AI finishes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Code Review Skill
+        uses: github/copilot-review-action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          custom-instructions-path: ".github/skills/markdown-review/SKILL.md"

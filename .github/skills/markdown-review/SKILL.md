@@ -1,11 +1,6 @@
 ---
-name: code-review
-description: High-context review of code and documentation changes. Maps PR deltas against high-level package intent.
-on:
-  pull_request:
-    types: [opened, synchronize]
-    branches:
-      - main
+name: markdown-review
+description: Run automatically during pull requests and code reviews targeting the main branch to map PR deltas against high-level package intent.
 ---
 
 # Code Review Agent Workflow
