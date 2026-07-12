@@ -7,6 +7,7 @@ file in the root directory
 
 include("./kktsolvers/itersolver.jl")
 include("./kktsolvers/qrchol.jl")
+include("./kktsolvers/twoqr.jl")
 
 using SparseArrays
 
@@ -97,7 +98,10 @@ function get_kkt_solvers()
                          "iterative" => true),
         "qrchol" => Dict("label" => "QR and Cholesky",
                          "fn" => qr_chol_solve,
-                         "iterative" => false)
+                         "iterative" => false),
+        "twoqr" => Dict("label" => "Two QR",
+                        "fn" => two_qr_solve,
+                        "iterative" => false)
     )
     return kkt_solvers
 end

@@ -28,7 +28,7 @@ All parameters are optional except `program` which must be specified before call
 * `device`: CPU or GPU
 * `program`: The Cone QP to solve
 * `kktsolver`: The object to represent the KKT solver used to solve the KKT system. The `kktsolve` argument will construct the appropriate KKTSolver object. \
-Possible values for kktsolve are `conjgrad`, `minres` and `qrchol`. `qrchol` is the default.
+Possible values for kktsolve are `conjgrad`, `minres`, `qrchol` and `twoqr`. `qrchol` is the default.
 * `limit_obj`: The minimum/maximum objective value the solver will terminate
 * `limit_soln`: The 2-norm difference between the current and previous estimates
 * `max_iterations`: The maximum number of iterations before the solver terminates

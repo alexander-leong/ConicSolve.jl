@@ -145,7 +145,7 @@ function reduce_cone(program_int::ProgramInterface,
 
         status = get_solver_status(solver)
         log_best_iterate(solver, i)
-        if status.status_termination == ConicSolve.INFEASIBLE
+        if status.status_termination == ConicSolve.INFEASIBLE && i > 1
             @info "Face reduced to n = $(reduced_cone.p)"
             break
         end
@@ -183,6 +183,10 @@ function reduce_cone(program_int::ProgramInterface,
         @info "Reduced problem, i = $(i)"
         if i == cone.p
             @info "Face reduced to limit"
+            break
+        end
+        if status.status_termination == ConicSolve.INFEASIBLE
+            @info "Face reduced to n = $(reduced_cone.p)"
             break
         end
         i += 1
@@ -247,7 +251,7 @@ function reduce_cone_program(program_int::ProgramInterface,
     if reduced_status == WEAK_CONSTRAINT
         return nothing, reduced_status, nothing
     end
-    if isnothing(Us) || i == 1
+    if isnothing(Us)
         @info "Subproblem face reduction unsuccessful"
         reduced_status = MINIMAL_FACE_IDENTIFICATION_FAILED
         return nothing, reduced_status, nothing
@@ -292,6 +296,7 @@ function reproject_to_original_form(Us::Vector{Matrix{Float64}}, x::Vector{Float
     reproj_x = mat(x)
     for U in Us
         reproj_x = U * reproj_x * U'
+        @info "size of reproject $(size(reproj_x))"
     end
     reproj_x = svec(reproj_x)
     return reproj_x

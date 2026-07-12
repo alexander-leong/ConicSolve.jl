@@ -210,14 +210,24 @@ end
 Gets the solution to the symmetry reduced cone program in terms of the original basis.
 """
 function get_solution(program::SymmetryReducedConeQP)
-    summands = program.summands
     xs = get_solution(program.program_int.cone_qp)
+    summands = program.summands
+    cones_inds = get_summands_inds(summands, program._active_summands)
+    result = get_solution(program, xs, cones_inds)
+    return result
+end
+
+function get_solution(program::SymmetryReducedConeQP, xs, cones_inds=nothing)
+    summands = program.summands
     n = size(summands[1], 2)
     result = zeros((n, n))
-    cones_inds = get_summands_inds(summands, program._active_summands)
     for (i, idx) in enumerate(program._active_summands)
-        inds = cones_inds[i]+1:cones_inds[i+1]
-        result += summands[idx]' * mat(xs[inds]) * summands[idx]
+        if !isnothing(cones_inds)
+            inds = cones_inds[i]+1:cones_inds[i+1]
+            result += summands[idx]' * mat(xs[inds]) * summands[idx]
+        else
+            result += summands[idx]' * mat(xs[i]) * summands[idx]
+        end
     end
     return result
 end
