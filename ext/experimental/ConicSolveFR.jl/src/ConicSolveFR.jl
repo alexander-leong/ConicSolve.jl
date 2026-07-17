@@ -95,7 +95,7 @@ function project_to_min_face(x::Vector{Float64}, program_int::ProgramInterface, 
     if length(inds) == length(F.S)
         reduced_status = ALREADY_FEASIBLE
         @info "Constraint already feasible, nothing to reduce"
-        return nothing, nothing, false, reduced_status
+        return U, nothing, false, reduced_status
     end
 
     reduced_cone = reduce_affine_constraints(program_int, out_program_int, U, cone, length(inds))
@@ -155,14 +155,16 @@ function reduce_cone(program_int::ProgramInterface,
         end
         
         # set F = F ∩ s\\^{\perp}
-        reduced_program_int = ProgramInterface(ConicSolve.ConeQP())
-        U, reduced_cone, reduced, reduced_status = project_to_min_face(s_perp,
+        new_reduced_program_int = ProgramInterface(ConicSolve.ConeQP())
+        U, new_reduced_cone, reduced, reduced_status = project_to_min_face(s_perp,
                                                     program_int,
-                                                    reduced_program_int,
+                                                    new_reduced_program_int,
                                                     cone,
                                                     truncation_tol)
-        if !isnothing(U)
+        if !isnothing(new_reduced_cone)
             push!(Us, U)
+            reduced_program_int = new_reduced_program_int
+            reduced_cone = new_reduced_cone
         end
         if reduced == false
             @info "Nothing reduced"
@@ -245,8 +247,7 @@ function reduce_cone_program(program_int::ProgramInterface,
                                                                             out_program.c,
                                                                             truncation_tol)
     if reduced_status == ALREADY_FEASIBLE
-        @info "Subproblem already feasible"
-        return nothing, reduced_status, nothing
+        @info "Subproblem feasible"
     end
     if reduced_status == WEAK_CONSTRAINT
         return nothing, reduced_status, nothing
@@ -259,7 +260,11 @@ function reduce_cone_program(program_int::ProgramInterface,
     @info "Subproblem reduced"
 
     # set objective of reduced problem
-    reduced_program = build_program(reduced_program_int)
+    if isnothing(reduced_program_int)
+        reduced_program = out_program
+    else
+        reduced_program = build_program(reduced_program_int)
+    end
 
     # solve the reduced problem
     cone_subproblem_solver = ConicSolve.Solver(reduced_program)

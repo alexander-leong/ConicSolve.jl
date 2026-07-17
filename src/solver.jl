@@ -86,9 +86,9 @@ mutable struct Solver
                     preconditioner="ruiz",
                     limit_obj=-Inf,
                     limit_soln=0,
-                    tol_gap_abs=1e-2,
-                    tol_gap_rel=1e-2,
-                    tol_optimality=1e-2,
+                    tol_gap_abs=1e-4,
+                    tol_gap_rel=1e-4,
+                    tol_optimality=1e-4,
                     max_iterations=200,
                     time_limit_sec=1e6,
                     η=nothing,
@@ -134,9 +134,9 @@ mutable struct Solver
                     preconditioner="ruiz",
                     limit_obj=-Inf,
                     limit_soln=0,
-                    tol_gap_abs=1e-2,
-                    tol_gap_rel=1e-2,
-                    tol_optimality=1e-2,
+                    tol_gap_abs=1e-4,
+                    tol_gap_rel=1e-4,
+                    tol_optimality=1e-4,
                     max_iterations=200,
                     time_limit_sec=1e6,
                     η=nothing,
@@ -994,7 +994,7 @@ function get_central_path(solver::Solver,
     # println(get_step_size_elapsed_time)
     @debug "Step size: " α
     @debug "η: " η
-    @debug "Centering parameter: " σ
+    # @info "Centering parameter: " σ
     
     # Combined direction, i.e. solve linear equations
     # see page 29 of coneprog.pdf for solving a KKT system with SOCP and SDP constraints
