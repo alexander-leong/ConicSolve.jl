@@ -146,7 +146,7 @@ function reduce_cone(program_int::ProgramInterface,
         status = get_solver_status(solver)
         log_best_iterate(solver, i)
         if status.status_termination == ConicSolve.INFEASIBLE && i > 1
-            @info "Face reduced to n = $(reduced_cone.p)"
+            @info "Face reduced to n = $(reduced_cone.p) with truncation tol $(truncation_tol)"
             break
         end
 
@@ -235,16 +235,17 @@ function reduce_cone_program(program_int::ProgramInterface,
                              cone::Cone,
                              store_iterates=false,
                              tol=1e-3,
-                             truncation_tol=1e-3)
+                             truncation_tol=1e-4)
     reduced_status = nothing
     out_program = get_subproblem(program_int, orig_solver.program, cone)
-    @info "Subproblem constructed"
+    @info "Subproblem constructed of size $(length(out_program.c))"
     
     solver = ConicSolve.Solver(out_program)
     solver.presolve_scaling_method = "ruiz"
     Us, i, reduced_cone, reduced_obj, reduced_program_int, reduced_status = reduce_cone(program_int, solver,
                                                                             cone,
                                                                             out_program.c,
+                                                                            tol,
                                                                             truncation_tol)
     if reduced_status == ALREADY_FEASIBLE
         @info "Subproblem feasible"
@@ -324,8 +325,8 @@ Returns the solutions for each subproblem and corresponding solvers used for eac
 function run_fr_solver(program,
                        solver::ConicSolve.Solver,
                        store_iterates=false,
-                       tol=1e-3,
-                       truncation_tol=1e-3)
+                       tol=1e-5,
+                       truncation_tol=1e-4)
     # perform facial reduction on solver problem
     problem = FacialReduction()
     problem.solver = solver

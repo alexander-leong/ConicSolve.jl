@@ -89,10 +89,10 @@ mutable struct Solver
                     tol_gap_abs=1e-4,
                     tol_gap_rel=1e-4,
                     tol_optimality=1e-4,
-                    max_iterations=200,
+                    max_iterations=100,
                     time_limit_sec=1e6,
                     η=nothing,
-                    γ::Float64=1.0,
+                    γ::Float64=0.0,
                     cb_before_iteration=nothing,
                     cb_after_iteration=nothing)
         solver = new()
@@ -507,7 +507,7 @@ function check_infeasibility(solver::Solver,
         inds = [get_indices_of_constraint(program, cone) for cone in vars.cones]
         y_is_relint = [is_convex_cone(cone, A[:, inds[i]]' * y, tol) for (i, cone) in enumerate(vars.cones)]
         y_in_cone = all(y_is_relint) || true
-        println("infeas: $(y_in_cone && b' * y - tol < 0)")
+        println("infeas: $(y_in_cone && b' * y - tol < 0) with $(b' * y - tol) < 0")
         return y_in_cone && b' * y - tol < 0
     end
 end
